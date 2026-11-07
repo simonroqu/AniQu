@@ -69,7 +69,7 @@ Eine laufende installierte Instanz bekommt das neue Binary erst nach einem Neust
 ## Design-Regeln
 
 Wie Tubequ (siehe `~/Work/tubequ/CLAUDE.md`): keine Kopfzeile, Nav-Bubble oben links, Buttons nur Icons mit Tooltip,
-Spinner = `icons::spinner()` (nie `gtk::Spinner`), keine knalligen Farben, keine festen Pixelbreiten im Raster.
+Laden von Inhalten = graue Platzhalter in Form des Inhalts mit Glanzstreifen (style.css `.skeleton`, wie Tubequ): Raster `grid.rs` `ghost_card`/`set_ghost` (Breiten über `part`, keine festen Pixel), Anime-Seite `show.rs` `set_loading` (Infos, Beschreibung, Poster-Fläche, Episoden-Kacheln); sonst (Bubble, Player) Spinner = `icons::spinner()` (nie `gtk::Spinner`), keine knalligen Farben, keine festen Pixelbreiten im Raster.
 Poster im Hochformat 2:3, Karten ab 170 px, höchstens 12 Spalten (im Vollbild sonst riesige Poster).
 
 ## Produktentscheidungen (so gewollt – nicht ohne Rückfrage ändern)

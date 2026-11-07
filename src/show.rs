@@ -59,7 +59,10 @@ pub struct ShowPage {
     /// Auf die Watchlist setzen/entfernen (Lesezeichen: Kontur = nicht drauf, gefüllt = drauf).
     watchlist: gtk::Button,
     flow: gtk::FlowBox,
-    spinner: gtk::Image,
+    /// Lade-Platzhalter (style.css `.skeleton`): Infos + Beschreibung, Episoden-Kacheln, Poster-Fläche.
+    ghost_text: gtk::Box,
+    ghost_flow: gtk::FlowBox,
+    poster_box: gtk::Box,
     status: gtk::Label,
     anime: RefCell<Anime>,
     episodes: RefCell<Rc<Vec<Episode>>>,
@@ -97,12 +100,26 @@ impl ShowPage {
         let watchlist = gtk::Button::builder().icon_name("aniqu-watchlist-symbolic").focusable(false).valign(gtk::Align::Center).css_classes(["flat"]).build();
         tabs.append(&watchlist);
 
+        // Platzhalter für Infos und Beschreibung, bis die Anime-Seite gelesen ist (Titel ist schon bekannt).
+        let ghost_text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).visible(false).build();
+        for (k, n, h) in [(2, 5, 14), (1, 4, 14)] {
+            ghost_text.append(&crate::grid::part(k, n, h));
+        }
+        let desc = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).margin_top(8).build();
+        for (k, n) in [(1, 1), (1, 1), (3, 5)] {
+            desc.append(&crate::grid::part(k, n, 14));
+        }
+        ghost_text.append(&desc);
+
         let text_col = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).hexpand(true).build();
-        for w in [title.upcast_ref::<gtk::Widget>(), meta.upcast_ref(), description.upcast_ref(), more.upcast_ref(), tabs.upcast_ref()] {
+        for w in [title.upcast_ref::<gtk::Widget>(), ghost_text.upcast_ref(), meta.upcast_ref(), description.upcast_ref(), more.upcast_ref(), tabs.upcast_ref()] {
             text_col.append(w);
         }
+        // Graue Fläche hinter dem Poster, bis es geladen ist; glänzt, solange die Seite lädt.
+        let poster_box = gtk::Box::builder().valign(gtk::Align::Start).overflow(gtk::Overflow::Hidden).css_classes(["thumb-box"]).build();
+        poster_box.append(&poster);
         let header = gtk::Box::builder().spacing(24).build();
-        header.append(&poster);
+        header.append(&poster_box);
         header.append(&text_col);
 
         let flow = gtk::FlowBox::builder()
@@ -114,7 +131,23 @@ impl ShowPage {
             .column_spacing(8)
             .valign(gtk::Align::Start)
             .build();
-        let spinner = crate::icons::spinner(32).margin_top(32).visible(false).build();
+        // Platzhalter-Kacheln in Form der Episoden (gleiche Breite wie `fill_episodes`).
+        let ghost_flow = gtk::FlowBox::builder()
+            .homogeneous(true)
+            .selection_mode(gtk::SelectionMode::None)
+            .max_children_per_line(12)
+            .row_spacing(8)
+            .column_spacing(8)
+            .valign(gtk::Align::Start)
+            .can_target(false)
+            .visible(false)
+            .build();
+        for _ in 0..12 {
+            let tile = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).width_request(200).css_classes(["episode"]).build();
+            tile.append(&crate::grid::part(1, 2, 16));
+            tile.append(&crate::grid::part(3, 4, 12));
+            ghost_flow.append(&tile);
+        }
         let status = gtk::Label::builder().visible(false).margin_top(32).wrap(true).build();
 
         let content = gtk::Box::builder()
@@ -127,7 +160,7 @@ impl ShowPage {
             .margin_bottom(32)
             .build();
         content.append(&header);
-        content.append(&spinner);
+        content.append(&ghost_flow);
         content.append(&status);
         content.append(&flow);
         let widget = gtk::ScrolledWindow::builder().child(&content).hscrollbar_policy(gtk::PolicyType::Never).build();
@@ -144,7 +177,9 @@ impl ShowPage {
             dub_tab,
             watchlist,
             flow,
-            spinner,
+            ghost_text,
+            ghost_flow,
+            poster_box,
             status,
             anime: RefCell::default(),
             episodes: RefCell::default(),
@@ -224,7 +259,7 @@ impl ShowPage {
             self.more.set_visible(false);
             self.set_anime(&a);
             self.fill_episodes();
-            self.spinner.set_visible(true);
+            self.set_loading(true);
         }
         self.status.set_visible(false);
         self.show_watchlist(crate::lists::on_watchlist(&a.id));
@@ -245,7 +280,7 @@ impl ShowPage {
             if page.generation.get() != generation {
                 return;
             }
-            page.spinner.set_visible(false);
+            page.set_loading(false);
             match details {
                 Ok(d) => page.set_details(d),
                 Err(e) => eprintln!("Anime-Seite nicht gelesen: {e}"),
@@ -260,6 +295,13 @@ impl ShowPage {
                 Err(e) => eprintln!("Episoden nicht neu geladen: {e}"),
             }
         });
+    }
+
+    /// Platzhalter an/aus. Die Episoden-Platzhalter nur, solange noch keine Episoden da sind.
+    fn set_loading(&self, on: bool) {
+        self.ghost_text.set_visible(on);
+        self.ghost_flow.set_visible(on && self.episodes.borrow().is_empty());
+        if on { self.poster_box.add_css_class("skeleton") } else { self.poster_box.remove_css_class("skeleton") }
     }
 
     fn show_watchlist(&self, on: bool) {

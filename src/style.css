@@ -362,3 +362,19 @@ flowboxchild:focus-visible {
 /* Der (unsichtbare) Scrollbalken im Kontextmenü hat eine Mindesthöhe: Menüs mit einem Eintrag
    wären sonst unten 16 px zu hoch. */
 popover.menu scrollbar slider { min-height: 0; min-width: 0; }
+
+/* Lade-Platzhalter (grid.rs `ghost_card`/`part`, show.rs `set_loading`): graue Blöcke in Form des
+   Inhalts, ein heller Streifen läuft von links nach rechts durch (wie in Tubequ). */
+@keyframes aniqu-shimmer {
+  from { background-position: -150% 0; }
+  to { background-position: 250% 0; }
+}
+
+.skeleton {
+  border-radius: var(--radius-s);
+  background-color: alpha(currentColor, 0.08);
+  background-image: linear-gradient(90deg, transparent, alpha(currentColor, 0.12), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: aniqu-shimmer 1.5s ease-in-out infinite;
+}

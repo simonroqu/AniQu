@@ -103,6 +103,29 @@ pub fn load_poster(pic: &gtk::Picture, url: Option<String>) {
     });
 }
 
+/// Lade-Platzhalter in Form einer Karte: Poster, Titel, Infos (style.css `.skeleton`). Gibt auch den
+/// Poster-Platzhalter zurück: seine Höhe folgt wie bei echten Karten der Spaltenbreite (`fit`).
+fn ghost_card(width: i32) -> (gtk::Box, gtk::Box) {
+    let b = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).build();
+    let poster = gtk::Box::builder().height_request(poster_height(width)).css_classes(["skeleton"]).build();
+    b.append(&poster);
+    b.append(&part(4, 5, 16));
+    b.append(&part(1, 2, 12));
+    (b, poster)
+}
+
+/// Grauer Balken über `k` von `n` gleich breiten Teilen der Zeile – ohne feste Pixelbreite,
+/// die dem Fenster eine Mindestbreite aufzwänge.
+pub fn part(k: i32, n: i32, height: i32) -> gtk::Grid {
+    let g = gtk::Grid::builder().column_homogeneous(true).build();
+    g.attach(&gtk::Box::builder().height_request(height).css_classes(["skeleton"]).build(), 0, 0, k, 1);
+    // Jede freie Spalte braucht ein Kind, sonst zählt sie bei gleich breiten Spalten nicht mit.
+    for i in k..n {
+        g.attach(&gtk::Box::new(gtk::Orientation::Horizontal, 0), i, 0, 1, 1);
+    }
+    g
+}
+
 /// Was eine Karte beim Anklicken öffnet.
 #[derive(Clone)]
 enum Item {
@@ -230,7 +253,9 @@ pub struct Grid {
     /// Trending ungefiltert; angezeigt ohne Animes auf der Watchlist (`fill_shelf`).
     trending_all: RefCell<Vec<Anime>>,
     status: gtk::Label,
-    spinner: gtk::Image,
+    /// Graue Platzhalter-Karten beim Laden; ihre Poster-Höhen folgen der Spaltenbreite.
+    ghost: gtk::FlowBox,
+    ghost_posters: RefCell<Vec<gtk::Box>>,
     /// `None` = Startseite, sonst die angezeigte Suche (für Reload).
     query: RefCell<Option<String>>,
     column_width: Cell<i32>,
@@ -249,9 +274,17 @@ impl Grid {
         let shelf = Section::new("Continue watching");
         let watchlist = Section::new("Watchlist");
         let results = Section::new("");
-        // Laden: nur ein Spinner. Das Label zeigt nur Fehler oder „keine Ergebnisse“.
+        // Laden: graue Platzhalter-Karten. Das Label zeigt nur Fehler oder „keine Ergebnisse“.
         let status = gtk::Label::builder().visible(false).margin_top(48).wrap(true).build();
-        let spinner = crate::icons::spinner(32).margin_top(48).visible(false).build();
+        let ghost = gtk::FlowBox::builder()
+            .homogeneous(true)
+            .selection_mode(gtk::SelectionMode::None)
+            .row_spacing(24)
+            .column_spacing(COLUMN_SPACING as u32)
+            .valign(gtk::Align::Start)
+            .can_target(false)
+            .visible(false)
+            .build();
 
         // Unsichtbare Messfläche über der ganzen Seite: meldet die Fensterbreite, daraus folgt die Spaltenzahl.
         let sizer = gtk::DrawingArea::builder().can_target(false).build();
@@ -262,7 +295,7 @@ impl Grid {
             .margin_end(16)
             .margin_bottom(32)
             .build();
-        content.append(&spinner);
+        content.append(&ghost);
         content.append(&status);
         // „Continue watching“ ganz oben, dann Watchlist, darunter Trending.
         for s in [&shelf, &watchlist, &trending, &results] {
@@ -283,7 +316,8 @@ impl Grid {
             results,
             trending_all: RefCell::default(),
             status,
-            spinner,
+            ghost,
+            ghost_posters: RefCell::default(),
             query: RefCell::default(),
             column_width: Cell::new(CARD_WIDTH),
             width: Cell::new(0),
@@ -406,14 +440,17 @@ impl Grid {
                     pic.set_height_request(poster_height(col_width));
                 }
             }
+            for p in self.ghost_posters.borrow().iter() {
+                p.set_height_request(poster_height(col_width));
+            }
         }
         // Feste Spaltenzahl (FlowBox würde sonst nach der natürlichen Bildbreite umbrechen).
         // Nicht mitten in der Größenberechnung umbauen, sondern direkt danach.
         let grid = self.clone();
         glib::idle_add_local_once(move || {
-            for s in [&grid.trending, &grid.shelf, &grid.watchlist, &grid.results] {
-                s.flow.set_min_children_per_line(cols as u32);
-                s.flow.set_max_children_per_line(cols as u32);
+            for flow in [&grid.trending.flow, &grid.shelf.flow, &grid.watchlist.flow, &grid.results.flow, &grid.ghost] {
+                flow.set_min_children_per_line(cols as u32);
+                flow.set_max_children_per_line(cols as u32);
             }
         });
     }
@@ -498,8 +535,31 @@ impl Grid {
         generation
     }
 
+    /// Platzhalter-Karten zeigen (an) oder entfernen (aus). So viele Reihen, dass die sichtbare Höhe
+    /// gefüllt ist; beim App-Start (noch ohne Größe) 4 Reihen bei 6 Spalten.
+    fn set_ghost(&self, on: bool) {
+        self.ghost.remove_all();
+        self.ghost_posters.borrow_mut().clear();
+        self.ghost.set_visible(on);
+        if !on {
+            return;
+        }
+        let cols = if self.columns.get() > 0 { self.columns.get() } else { 6 };
+        let width = self.column_width.get();
+        // ponytail: ~60 px Text unter dem Poster + Reihenabstand geschätzt.
+        let h = self.scroll.height();
+        let rows = if h > 0 { (h / (poster_height(width) + 60).max(1)) as usize + 1 } else { 4 };
+        self.ghost.set_min_children_per_line(cols as u32);
+        self.ghost.set_max_children_per_line(cols as u32);
+        for _ in 0..rows.max(1) * cols {
+            let (card, poster) = ghost_card(width);
+            self.ghost.append(&card);
+            self.ghost_posters.borrow_mut().push(poster);
+        }
+    }
+
     fn message(&self, text: &str) {
-        self.spinner.set_visible(false);
+        self.set_ghost(false);
         self.status.set_text(text);
         self.status.set_visible(true);
     }
@@ -517,7 +577,7 @@ impl Grid {
         }
         self.fill_shelf();
         self.check_new_episodes();
-        self.spinner.set_visible(self.trending_all.borrow().is_empty());
+        self.set_ghost(self.trending_all.borrow().is_empty());
         let grid = self.clone();
         let busy = crate::Busy::new();
         glib::spawn_future_local(async move {
@@ -526,7 +586,7 @@ impl Grid {
             if grid.generation.get() != generation {
                 return;
             }
-            grid.spinner.set_visible(false);
+            grid.set_ghost(false);
             match res {
                 Ok(list) => {
                     anime::save_trending(&list);
@@ -545,7 +605,7 @@ impl Grid {
         for s in [&self.trending, &self.shelf, &self.watchlist, &self.results] {
             s.set(vec![], w);
         }
-        self.spinner.set_visible(true);
+        self.set_ghost(true);
         let grid = self.clone();
         let busy = crate::Busy::new();
         glib::spawn_future_local(async move {
@@ -554,7 +614,7 @@ impl Grid {
             if grid.generation.get() != generation {
                 return;
             }
-            grid.spinner.set_visible(false);
+            grid.set_ghost(false);
             match res {
                 Ok(list) if list.is_empty() => grid.message("No results"),
                 Ok(list) => grid.results.set(list.into_iter().map(Item::Anime).collect(), grid.column_width.get()),
