@@ -1,0 +1,16 @@
+# Build-Ausgabe
+/target
+
+# Lokale Notizen für Claude Code (enthalten Hinweise zu Simons System)
+/CLAUDE.md
+/.claude/
+
+# Editor- und Systemdateien
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Lokale Umgebungsvariablen / Geheimnisse
+.env
