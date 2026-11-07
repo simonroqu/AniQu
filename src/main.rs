@@ -74,6 +74,8 @@ struct Nav {
     window: gtk::ApplicationWindow,
     player: Rc<player::Player>,
     history: RefCell<Vec<String>>,
+    /// Seiten, von denen man mit „Zurück“ gekommen ist (Maustaste 5 = vor). Neue Wege leeren sie.
+    forward: RefCell<Vec<String>>,
     /// Schwebende Knöpfe oben links. Auf Übersicht/Anime-Seite immer sichtbar über der Seite;
     /// beim Video sitzen sie im Player und blenden sich mit dessen Leiste aus und ein.
     nav_bar: gtk::Revealer,
@@ -150,6 +152,7 @@ impl Nav {
         let cur = self.current();
         if cur != page {
             self.history.borrow_mut().push(cur);
+            self.forward.borrow_mut().clear();
         }
         self.show(page);
     }
@@ -157,12 +160,24 @@ impl Nav {
     fn back(&self) {
         let prev = self.history.borrow_mut().pop();
         if let Some(p) = prev {
+            self.forward.borrow_mut().push(self.current());
+            self.show(&p);
+        }
+    }
+
+    /// Gegenstück zu `back`. ponytail: merkt nur die Seite, nicht ihren Inhalt – die Seiten gibt es je
+    /// einmal und sie zeigen noch, was zuletzt drin war (Anime, Episode).
+    fn forward(&self) {
+        let next = self.forward.borrow_mut().pop();
+        if let Some(p) = next {
+            self.history.borrow_mut().push(self.current());
             self.show(&p);
         }
     }
 
     fn home(&self) {
         self.history.borrow_mut().clear();
+        self.forward.borrow_mut().clear();
         self.show("browse");
     }
 }
@@ -323,6 +338,7 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
         window: window.clone(),
         player: player.clone(),
         history: RefCell::default(),
+        forward: RefCell::default(),
         nav_bar: nav_bar.clone(),
         page_layer: page_layer.clone(),
         in_player: Cell::new(false),
@@ -522,6 +538,23 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
         let nav = nav.clone();
         move |_| nav.back()
     });
+    // Seitentasten der Maus (GTK: 8 = zurück, 9 = vor), überall im Fenster, auch über dem Player.
+    let side_buttons = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
+    side_buttons.connect_pressed({
+        let nav = nav.clone();
+        move |g, _, _, _| match g.current_button() {
+            8 => {
+                g.set_state(gtk::EventSequenceState::Claimed);
+                nav.back();
+            }
+            9 => {
+                g.set_state(gtk::EventSequenceState::Claimed);
+                nav.forward();
+            }
+            _ => {}
+        }
+    });
+    window.add_controller(side_buttons);
     // Home: Startseite (statt Suchergebnissen); ist man schon dort, neu laden.
     home.connect_clicked({
         let (nav, grid) = (nav.clone(), grid.clone());

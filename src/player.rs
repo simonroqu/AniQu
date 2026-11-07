@@ -321,9 +321,17 @@ impl Player {
 
         // Mausbewegung über dem Video blendet die Leiste ein.
         let motion = gtk::EventControllerMotion::new();
+        // Nur echte Bewegung zählt: GTK schickt nach Änderungen im Layout (Zeit, Timeline, Ein-/Ausblenden)
+        // Bewegungs-Ereignisse an derselben Stelle nach, die Leiste bliebe sonst für immer sichtbar.
+        let last = std::cell::Cell::new((f64::NAN, f64::NAN));
         motion.connect_motion({
             let controls = controls.clone();
-            move |_, _, _| controls.poke()
+            move |_, x, y| {
+                let (lx, ly) = last.replace((x, y));
+                if (x - lx).abs() >= 1.0 || (y - ly).abs() >= 1.0 || lx.is_nan() {
+                    controls.poke();
+                }
+            }
         });
         // Maus verlässt den Player: Leiste sofort weg.
         motion.connect_leave({

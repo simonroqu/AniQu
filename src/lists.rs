@@ -1,4 +1,4 @@
-//! Kleine lokale Listen in `~/.local/share/aniqu/`: Suchverlauf, Geschwindigkeit und Sub/Dub pro Anime.
+//! Kleine lokale Listen in `~/.local/share/aniqu/`: Suchverlauf, Watchlist, Geschwindigkeit und Sub/Dub pro Anime.
 
 use crate::progress::data_file;
 
@@ -26,6 +26,29 @@ pub fn add_search(q: &str) {
     list.insert(0, q.replace('\n', " "));
     list.truncate(SEARCHES_MAX);
     write("searches.txt", &list.join("\n"));
+}
+
+// ---------- Watchlist (neueste zuerst) ----------
+
+pub fn watchlist() -> Vec<crate::anime::Anime> {
+    crate::anime::read_list(&data_file("watchlist.tsv"))
+}
+
+pub fn on_watchlist(id: &str) -> bool {
+    watchlist().iter().any(|a| a.id == id)
+}
+
+/// Aufnehmen bzw. entfernen; liefert, ob er jetzt drauf ist.
+pub fn toggle_watchlist(a: &crate::anime::Anime) -> bool {
+    let mut list = watchlist();
+    let before = list.len();
+    list.retain(|x| x.id != a.id);
+    let added = list.len() == before;
+    if added {
+        list.insert(0, a.clone());
+    }
+    crate::anime::write_list(&data_file("watchlist.tsv"), &list);
+    added
 }
 
 // ---------- Werte pro Anime (Tabelle „id<TAB>wert“) ----------

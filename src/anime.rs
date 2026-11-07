@@ -154,10 +154,39 @@ fn parse_trending(html: &str) -> Vec<Anime> {
         .collect()
 }
 
-/// Trending-Liste von der Startseite der Seite.
+/// „Top 10“ der Seitenleiste (Heute, Woche, Monat hintereinander).
+fn parse_top(html: &str) -> Vec<Anime> {
+    html.split("<li class=\"item-top\">")
+        .skip(1)
+        .filter_map(|item| {
+            let name = between(item, "<h3 class=\"film-name\">", "</h3>")?;
+            Some(Anime {
+                id: slug(&attr(name, "href")?),
+                title: attr(name, "title")?,
+                poster: between(item, "<img src=\"", "\"").map(String::from),
+                sub: number(between(item, "tick-sub\">", "</div>")),
+                dub: number(between(item, "tick-dub\">", "</div>")),
+                ..Default::default()
+            })
+        })
+        .filter(|a| !a.id.is_empty())
+        .collect()
+}
+
+/// Trending-Liste von der Startseite der Seite, danach als Reserve (falls Trending-Einträge auf der
+/// Watchlist stehen und ausgeblendet werden) Top 10 und neueste Episoden aus derselben Seite.
 pub async fn trending() -> Result<Vec<Anime>, String> {
-    let list = parse_trending(&get(&format!("{BASE}/home"), None).await?);
-    if list.is_empty() { Err("Couldn't read the trending list".into()) } else { Ok(list) }
+    let html = get(&format!("{BASE}/home"), None).await?;
+    let mut list = parse_trending(&html);
+    if list.is_empty() {
+        return Err("Couldn't read the trending list".into());
+    }
+    for a in parse_top(&html).into_iter().chain(parse_search(&html)) {
+        if !list.iter().any(|b| b.id == a.id) {
+            list.push(a);
+        }
+    }
+    Ok(list)
 }
 
 fn parse_search(html: &str) -> Vec<Anime> {
@@ -343,7 +372,16 @@ fn trending_file() -> PathBuf {
 }
 
 pub fn saved_trending() -> Vec<Anime> {
-    std::fs::read_to_string(trending_file())
+    read_list(&trending_file())
+}
+
+pub fn save_trending(list: &[Anime]) {
+    write_list(&trending_file(), list);
+}
+
+/// Anime-Liste als TSV (id, Titel, Poster) – für Trending und Watchlist.
+pub fn read_list(path: &std::path::Path) -> Vec<Anime> {
+    std::fs::read_to_string(path)
         .unwrap_or_default()
         .lines()
         .filter_map(|l| {
@@ -354,14 +392,14 @@ pub fn saved_trending() -> Vec<Anime> {
         .collect()
 }
 
-pub fn save_trending(list: &[Anime]) {
+pub fn write_list(path: &std::path::Path, list: &[Anime]) {
     let clean = |s: &str| s.replace(['\t', '\n'], " ");
     let text: String = list
         .iter()
         .map(|a| format!("{}\t{}\t{}\n", clean(&a.id), clean(&a.title), clean(a.poster.as_deref().unwrap_or_default())))
         .collect();
-    let _ = std::fs::create_dir_all(cache_dir());
-    let _ = std::fs::write(trending_file(), text);
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    let _ = std::fs::write(path, text);
 }
 
 #[cfg(test)]

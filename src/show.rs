@@ -56,6 +56,8 @@ pub struct ShowPage {
     more: gtk::Button,
     sub_tab: gtk::ToggleButton,
     dub_tab: gtk::ToggleButton,
+    /// Auf die Watchlist setzen/entfernen (Lesezeichen: Kontur = nicht drauf, gefüllt = drauf).
+    watchlist: gtk::Button,
     flow: gtk::FlowBox,
     spinner: gtk::Image,
     status: gtk::Label,
@@ -92,6 +94,8 @@ impl ShowPage {
         let tabs = gtk::Box::builder().spacing(6).margin_top(8).css_classes(["tabs"]).build();
         tabs.append(&sub_tab);
         tabs.append(&dub_tab);
+        let watchlist = gtk::Button::builder().icon_name("aniqu-watchlist-symbolic").focusable(false).valign(gtk::Align::Center).css_classes(["flat"]).build();
+        tabs.append(&watchlist);
 
         let text_col = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).hexpand(true).build();
         for w in [title.upcast_ref::<gtk::Widget>(), meta.upcast_ref(), description.upcast_ref(), more.upcast_ref(), tabs.upcast_ref()] {
@@ -138,6 +142,7 @@ impl ShowPage {
             more,
             sub_tab,
             dub_tab,
+            watchlist,
             flow,
             spinner,
             status,
@@ -156,6 +161,15 @@ impl ShowPage {
                 p.description.set_lines(if expand { -1 } else { DESCRIPTION_LINES });
                 p.description.set_ellipsize(if expand { gtk::pango::EllipsizeMode::None } else { gtk::pango::EllipsizeMode::End });
                 b.set_label(if expand { SHOW_LESS } else { SHOW_MORE });
+            }
+        });
+        page.watchlist.connect_clicked({
+            let page = Rc::downgrade(&page);
+            move |_| {
+                if let Some(p) = page.upgrade() {
+                    let on = crate::lists::toggle_watchlist(&p.anime.borrow());
+                    p.show_watchlist(on);
+                }
             }
         });
         // `clicked` kommt nur vom Nutzer, nicht von set_active in `open`.
@@ -213,6 +227,7 @@ impl ShowPage {
             self.spinner.set_visible(true);
         }
         self.status.set_visible(false);
+        self.show_watchlist(crate::lists::on_watchlist(&a.id));
         self.anime.replace(a.clone());
 
         let page = self.clone();
@@ -245,6 +260,11 @@ impl ShowPage {
                 Err(e) => eprintln!("Episoden nicht neu geladen: {e}"),
             }
         });
+    }
+
+    fn show_watchlist(&self, on: bool) {
+        self.watchlist.set_icon_name(if on { "aniqu-watchlisted-symbolic" } else { "aniqu-watchlist-symbolic" });
+        self.watchlist.set_tooltip_text(Some(if on { "Remove from Watchlist" } else { "Add to Watchlist" }));
     }
 
     pub fn reload(self: &Rc<Self>) {

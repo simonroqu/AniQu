@@ -31,12 +31,40 @@ const NEW_EPISODE_INTERVAL: std::time::Duration = std::time::Duration::from_secs
 thread_local! {
     static LAST_CHECK: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
 }
+/// So viele Trending-Animes zeigt hianime; auf ganze Reihen aufgerundet (6 Spalten → 12, 5 → 15).
+const TRENDING_SHOWN: usize = 12;
+
+/// Wie viele von `available` Trending-Animes zeigen: `TRENDING_SHOWN` auf volle Reihen aufgerundet;
+/// reicht der Vorrat nicht, nur die vollen Reihen (mindestens eine, auch wenn unvollständig).
+fn trending_count(available: usize, cols: usize) -> usize {
+    let cols = cols.max(1);
+    let want = TRENDING_SHOWN.div_ceil(cols) * cols;
+    if available >= want { want } else { (available / cols * cols).max(available.min(cols)) }
+}
+
 /// Abstand oben bis zur ersten Karte (unter der schwebenden Navigation).
 const TOP_MARGIN: i32 = 56;
 
-/// Spalten für eine Breite: so viele Karten wie passen, höchstens `MAX_COLUMNS`.
-fn columns(width: i32) -> usize {
-    ((width + COLUMN_SPACING) / (CARD_WIDTH + COLUMN_SPACING + 8)).clamp(1, MAX_COLUMNS) as usize
+/// Mit Strg+Mausrad wählbare Spaltenzahl (Poster: weniger als 4 wären riesig).
+const MIN_WANT: usize = 4;
+const MAX_WANT: usize = 12;
+/// Gewählte Spalten werden nur so weit gezeigt, wie Karten dieser Breite noch passen.
+const MIN_CARD_WIDTH: i32 = 120;
+
+/// Spalten für eine Breite: ohne Wahl so viele Karten wie passen, höchstens `MAX_COLUMNS`;
+/// mit Strg+Mausrad gewählt (`want`) diese Zahl, solange Karten ≥ `MIN_CARD_WIDTH` passen.
+fn columns(width: i32, want: Option<usize>) -> usize {
+    let fit = |card: i32| ((width + COLUMN_SPACING) / (card + COLUMN_SPACING + 8)).max(1) as usize;
+    match want {
+        Some(n) => n.min(fit(MIN_CARD_WIDTH)),
+        None => fit(CARD_WIDTH).min(MAX_COLUMNS as usize),
+    }
+}
+
+/// Eine Spalte mehr (`dy` < 0, Mausrad hoch) oder weniger, in `MIN_WANT..=MAX_WANT`.
+fn step_columns(current: usize, dy: f64) -> usize {
+    let n = if dy < 0.0 { current + 1 } else { current.saturating_sub(1) };
+    n.clamp(MIN_WANT, MAX_WANT)
 }
 
 /// Poster-Höhe (Hochformat 2:3) zur Kartenbreite.
@@ -115,12 +143,41 @@ fn card(item: &Item, width: i32) -> (gtk::Box, gtk::Picture) {
 
     // Keine Mindestbreite: die Spaltenzahl folgt aus `columns`, die Karte füllt ihre Spalte.
     let b = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).build();
+    card_menu(&b, &a.id, matches!(item, Item::Resume(_)));
     b.append(&thumb);
     b.append(&label(&a.title, &["heading"]));
     if !meta.is_empty() {
         b.append(&label(&meta, &["dim-label", "caption"]));
     }
     (b, pic)
+}
+
+/// Rechtsklick: Watchlist an/aus, bei „Continue watching“ zusätzlich „Watched“.
+/// Die Aktionen (`card.*`) hängen am Raster, siehe `Grid::new`.
+fn card_menu(card: &gtk::Box, id: &str, resume: bool) {
+    let click = gtk::GestureClick::builder().button(3).build();
+    let id = id.to_string();
+    click.connect_pressed(move |g, _, x, y| {
+        let Some(card) = g.widget() else { return };
+        g.set_state(gtk::EventSequenceState::Claimed);
+        let menu = gtk::gio::Menu::new();
+        let label = if crate::lists::on_watchlist(&id) { "Remove from Watchlist" } else { "Add to Watchlist" };
+        menu.append(Some(label), Some(&gtk::gio::Action::print_detailed_name("card.watchlist", Some(&id.to_variant()))));
+        if resume {
+            menu.append(Some("Watched"), Some(&gtk::gio::Action::print_detailed_name("card.watched", Some(&id.to_variant()))));
+        }
+        let pop = gtk::PopoverMenu::from_model(Some(&menu));
+        pop.set_parent(&card);
+        pop.set_has_arrow(false);
+        pop.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        // Nach dem Schließen wieder vom Karten-Widget lösen.
+        pop.connect_closed(|p| {
+            let p = p.clone();
+            glib::idle_add_local_once(move || p.unparent());
+        });
+        pop.popup();
+    });
+    card.add_controller(click);
 }
 
 /// Überschrift plus Karten-Reihe(n).
@@ -168,12 +225,20 @@ pub struct Grid {
     scroll: gtk::ScrolledWindow,
     trending: Rc<Section>,
     shelf: Rc<Section>,
+    watchlist: Rc<Section>,
     results: Rc<Section>,
+    /// Trending ungefiltert; angezeigt ohne Animes auf der Watchlist (`fill_shelf`).
+    trending_all: RefCell<Vec<Anime>>,
     status: gtk::Label,
     spinner: gtk::Image,
     /// `None` = Startseite, sonst die angezeigte Suche (für Reload).
     query: RefCell<Option<String>>,
     column_width: Cell<i32>,
+    /// Zuletzt gemessene Breite (ohne Seitenränder) und aktuelle Spaltenzahl.
+    width: Cell<i32>,
+    columns: Cell<usize>,
+    /// Mit Strg+Mausrad gewählte Spaltenzahl, gespeichert in `~/.config/aniqu/columns`.
+    want: Cell<Option<usize>>,
     /// Wird bei jedem neuen Inhalt erhöht, damit verspätete Antworten alter Suchen verworfen werden.
     generation: Cell<u64>,
 }
@@ -182,6 +247,7 @@ impl Grid {
     pub fn new(on_open: impl Fn(Anime) + 'static, on_resume: impl Fn(Resume) + 'static) -> Rc<Self> {
         let trending = Section::new("Trending");
         let shelf = Section::new("Continue watching");
+        let watchlist = Section::new("Watchlist");
         let results = Section::new("");
         // Laden: nur ein Spinner. Das Label zeigt nur Fehler oder „keine Ergebnisse“.
         let status = gtk::Label::builder().visible(false).margin_top(48).wrap(true).build();
@@ -198,8 +264,8 @@ impl Grid {
             .build();
         content.append(&spinner);
         content.append(&status);
-        // „Continue watching“ ganz oben, darunter Trending.
-        for s in [&shelf, &trending, &results] {
+        // „Continue watching“ ganz oben, dann Watchlist, darunter Trending.
+        for s in [&shelf, &watchlist, &trending, &results] {
             content.append(&s.title);
             content.append(&s.flow);
         }
@@ -213,16 +279,23 @@ impl Grid {
             scroll,
             trending,
             shelf,
+            watchlist,
             results,
+            trending_all: RefCell::default(),
             status,
             spinner,
             query: RefCell::default(),
             column_width: Cell::new(CARD_WIDTH),
+            width: Cell::new(0),
+            columns: Cell::new(0),
+            want: Cell::new(
+                std::fs::read_to_string(crate::controls::config_file("columns")).ok().and_then(|s| s.trim().parse().ok()),
+            ),
             generation: Cell::new(0),
         });
 
         let (on_open, on_resume): (Rc<dyn Fn(Anime)>, Rc<dyn Fn(Resume)>) = (Rc::new(on_open), Rc::new(on_resume));
-        for s in [&grid.trending, &grid.shelf, &grid.results] {
+        for s in [&grid.trending, &grid.shelf, &grid.watchlist, &grid.results] {
             let (s2, on_open, on_resume) = (Rc::downgrade(s), on_open.clone(), on_resume.clone());
             s.flow.connect_child_activated(move |_, child| {
                 let Some(s) = s2.upgrade() else { return };
@@ -238,29 +311,63 @@ impl Grid {
         sizer.connect_resize({
             let grid = Rc::downgrade(&grid);
             move |_, page_width, _| {
-                // Abzüglich der Seitenränder des Inhalts (je 16 px).
-                let width = page_width - 32;
-                let cols = columns(width);
-                let Some(grid) = grid.upgrade() else { return };
-                let col_width = (width - (cols as i32 - 1) * COLUMN_SPACING) / cols as i32;
-                if (col_width - grid.column_width.get()).abs() > 4 {
-                    grid.column_width.set(col_width);
-                    for s in [&grid.trending, &grid.shelf, &grid.results] {
-                        for pic in s.pics.borrow().iter() {
-                            pic.set_height_request(poster_height(col_width));
-                        }
-                    }
+                if let Some(grid) = grid.upgrade() {
+                    // Abzüglich der Seitenränder des Inhalts (je 16 px).
+                    grid.width.set(page_width - 32);
+                    grid.fit();
                 }
-                // Feste Spaltenzahl (FlowBox würde sonst nach der natürlichen Bildbreite umbrechen).
-                // Nicht mitten in der Größenberechnung umbauen, sondern direkt danach.
-                glib::idle_add_local_once(move || {
-                    for s in [&grid.trending, &grid.shelf, &grid.results] {
-                        s.flow.set_min_children_per_line(cols as u32);
-                        s.flow.set_max_children_per_line(cols as u32);
-                    }
-                });
             }
         });
+
+        // Strg+Mausrad: eine Spalte mehr/weniger (vor dem weichen Scrollen der Seite).
+        let zoom_ctl = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        zoom_ctl.set_propagation_phase(gtk::PropagationPhase::Capture);
+        zoom_ctl.connect_scroll({
+            let grid = Rc::downgrade(&grid);
+            move |c, _, dy| {
+                let Some(grid) = grid.upgrade() else { return glib::Propagation::Proceed };
+                if !c.current_event_state().contains(gdk::ModifierType::CONTROL_MASK) {
+                    return glib::Propagation::Proceed;
+                }
+                // ponytail: Touchpad (Pixel statt Rasten) wird nur geschluckt; aufsummieren, falls gewünscht.
+                if c.unit() == gdk::ScrollUnit::Wheel && dy != 0.0 {
+                    let n = step_columns(grid.columns.get(), dy);
+                    grid.want.set(Some(n));
+                    let f = crate::controls::config_file("columns");
+                    let _ = std::fs::create_dir_all(f.parent().unwrap());
+                    let _ = std::fs::write(f, n.to_string());
+                    grid.fit();
+                }
+                glib::Propagation::Stop
+            }
+        });
+        grid.widget.add_controller(zoom_ctl);
+
+        // Aktionen für das Karten-Menü (`card_menu`); Parameter = Anime-ID.
+        let actions = gtk::gio::SimpleActionGroup::new();
+        let add = |name: &str, f: fn(&Rc<Grid>, &str)| {
+            let a = gtk::gio::SimpleAction::new(name, Some(glib::VariantTy::STRING));
+            let grid = Rc::downgrade(&grid);
+            a.connect_activate(move |_, p| {
+                if let (Some(g), Some(id)) = (grid.upgrade(), p.and_then(|p| p.get::<String>())) {
+                    f(&g, &id);
+                }
+            });
+            actions.add_action(&a);
+        };
+        add("watchlist", |g, id| {
+            if let Some(a) = g.find(id) {
+                crate::lists::toggle_watchlist(&a);
+                if g.is_home() {
+                    g.fill_shelf();
+                }
+            }
+        });
+        add("watched", |g, id| {
+            progress::hide(id);
+            g.fill_shelf();
+        });
+        grid.widget.insert_action_group("card", Some(&actions));
 
         // Zurück auf der Startseite (z. B. nach einer Episode): „Continue watching“ auffrischen.
         grid.widget.connect_map({
@@ -277,11 +384,67 @@ impl Grid {
         grid
     }
 
+    /// Spaltenzahl und Posterhöhen aus der gemessenen Breite und der Spaltenwahl.
+    fn fit(self: &Rc<Self>) {
+        let width = self.width.get();
+        if width <= 0 {
+            return;
+        }
+        let cols = columns(width, self.want.get());
+        if cols != self.columns.get() {
+            self.columns.set(cols);
+            // Trending füllt immer ganze Reihen: bei anderer Spaltenzahl neu zuschneiden.
+            if self.is_home() {
+                self.fill_trending();
+            }
+        }
+        let col_width = (width - (cols as i32 - 1) * COLUMN_SPACING) / cols as i32;
+        if (col_width - self.column_width.get()).abs() > 4 {
+            self.column_width.set(col_width);
+            for s in [&self.trending, &self.shelf, &self.watchlist, &self.results] {
+                for pic in s.pics.borrow().iter() {
+                    pic.set_height_request(poster_height(col_width));
+                }
+            }
+        }
+        // Feste Spaltenzahl (FlowBox würde sonst nach der natürlichen Bildbreite umbrechen).
+        // Nicht mitten in der Größenberechnung umbauen, sondern direkt danach.
+        let grid = self.clone();
+        glib::idle_add_local_once(move || {
+            for s in [&grid.trending, &grid.shelf, &grid.watchlist, &grid.results] {
+                s.flow.set_min_children_per_line(cols as u32);
+                s.flow.set_max_children_per_line(cols as u32);
+            }
+        });
+    }
+
     fn fill_shelf(&self) {
         let items: Vec<Item> = progress::continue_watching(SHELF_MAX).into_iter().map(Item::Resume).collect();
-        // Abstand zu Trending nur, wenn darüber „Continue watching“ steht.
-        self.trending.title.set_margin_top(if items.is_empty() { 0 } else { 32 });
+        let marked: Vec<Item> = crate::lists::watchlist().into_iter().map(Item::Anime).collect();
+        // Abstand zum Abschnitt darüber nur, wenn einer darüber steht.
+        self.watchlist.title.set_margin_top(if items.is_empty() { 0 } else { 32 });
+        self.trending.title.set_margin_top(if items.is_empty() && marked.is_empty() { 0 } else { 32 });
         self.shelf.set(items, self.column_width.get());
+        self.watchlist.set(marked, self.column_width.get());
+        self.fill_trending();
+    }
+
+    /// Trending ohne Watchlist-Animes, aufgefüllt aus der Reserve, immer ganze Reihen.
+    fn fill_trending(&self) {
+        let list: Vec<Anime> = self.trending_all.borrow().iter().filter(|a| !crate::lists::on_watchlist(&a.id)).cloned().collect();
+        let n = trending_count(list.len(), self.columns.get());
+        self.trending.set(list.into_iter().take(n).map(Item::Anime).collect(), self.column_width.get());
+    }
+
+    /// Angezeigter Anime mit dieser ID (für das Karten-Menü).
+    fn find(&self, id: &str) -> Option<Anime> {
+        [&self.shelf, &self.watchlist, &self.trending, &self.results].iter().find_map(|s| {
+            s.items.borrow().iter().find_map(|i| match i {
+                Item::Anime(a) if a.id == id => Some(a.clone()),
+                Item::Resume(r) if r.anime.id == id => Some(r.anime.clone()),
+                _ => None,
+            })
+        })
     }
 
     /// Laufende Animes, bei denen man auf dem Stand ist: neue Folge draußen? Dann kommt die nächste
@@ -346,15 +509,15 @@ impl Grid {
         let generation = self.begin(None);
         let w = self.column_width.get();
         self.results.set(vec![], w);
-        self.fill_shelf();
-        self.check_new_episodes();
-        let saved: Vec<Item> = anime::saved_trending().into_iter().map(Item::Anime).collect();
+        let saved = anime::saved_trending();
         let has_saved = !saved.is_empty();
         // Bisheriges bleibt beim Reload stehen, bis das Neue da ist (Lade-Kreis in der Bubble).
-        if has_saved || self.trending.items.borrow().is_empty() {
-            self.trending.set(saved, w);
+        if has_saved {
+            self.trending_all.replace(saved);
         }
-        self.spinner.set_visible(!has_saved && self.trending.items.borrow().is_empty());
+        self.fill_shelf();
+        self.check_new_episodes();
+        self.spinner.set_visible(self.trending_all.borrow().is_empty());
         let grid = self.clone();
         let busy = crate::Busy::new();
         glib::spawn_future_local(async move {
@@ -367,10 +530,10 @@ impl Grid {
             match res {
                 Ok(list) => {
                     anime::save_trending(&list);
-                    let items = list.into_iter().map(Item::Anime).collect();
-                    grid.trending.set(items, grid.column_width.get());
+                    grid.trending_all.replace(list);
+                    grid.fill_shelf();
                 }
-                Err(e) if grid.trending.items.borrow().is_empty() => grid.message(&format!("Error: {e}")),
+                Err(e) if grid.trending_all.borrow().is_empty() => grid.message(&format!("Error: {e}")),
                 Err(e) => eprintln!("Trending nicht geladen, zeige gespeicherte Liste: {e}"),
             }
         });
@@ -379,7 +542,7 @@ impl Grid {
     pub fn show_search(self: &Rc<Self>, query: String) {
         let generation = self.begin(Some(query.clone()));
         let w = self.column_width.get();
-        for s in [&self.trending, &self.shelf, &self.results] {
+        for s in [&self.trending, &self.shelf, &self.watchlist, &self.results] {
             s.set(vec![], w);
         }
         self.spinner.set_visible(true);
@@ -424,10 +587,22 @@ mod tests {
         assert_eq!(fmt_duration(59), "0:59");
         assert_eq!(fmt_duration(3725), "1:02:05");
         // Spalten: schmal 1, Standardfenster (1280) 6, Vollbild 1920 → 9, 2560 → 13 → höchstens 12.
-        assert_eq!(columns(150), 1);
-        assert_eq!(columns(1248), 6);
-        assert_eq!(columns(1888), 9);
-        assert_eq!(columns(2528), 12);
+        assert_eq!(columns(150, None), 1);
+        assert_eq!(columns(1248, None), 6);
+        assert_eq!(columns(1888, None), 9);
+        assert_eq!(columns(2528, None), 12);
+        // Gewählt: so viele, wie 120-px-Karten passen.
+        assert_eq!(columns(2528, Some(4)), 4);
+        assert_eq!(columns(1248, Some(12)), 8);
+        assert_eq!(step_columns(6, -1.0), 7);
+        assert_eq!(step_columns(12, -1.0), 12);
+        assert_eq!(step_columns(4, 1.0), 4);
         assert_eq!(poster_height(200), 300);
+        // Trending: 12 auf volle Reihen, Reserve reicht nicht → nur volle Reihen.
+        assert_eq!(trending_count(40, 6), 12);
+        assert_eq!(trending_count(40, 5), 15);
+        assert_eq!(trending_count(40, 12), 12);
+        assert_eq!(trending_count(11, 6), 6);
+        assert_eq!(trending_count(4, 6), 4);
     }
 }

@@ -1,8 +1,7 @@
 # Build-Ausgabe
 /target
 
-# Lokale Notizen für Claude Code (enthalten Hinweise zu Simons System)
-/CLAUDE.md
+# Lokale Claude-Code-Einstellungen
 /.claude/
 
 # Editor- und Systemdateien

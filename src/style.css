@@ -358,3 +358,7 @@ flowboxchild:focus-visible {
 .mini {
   animation: mini-in 250ms ease-out;
 }
+
+/* Der (unsichtbare) Scrollbalken im Kontextmenü hat eine Mindesthöhe: Menüs mit einem Eintrag
+   wären sonst unten 16 px zu hoch. */
+popover.menu scrollbar slider { min-height: 0; min-width: 0; }

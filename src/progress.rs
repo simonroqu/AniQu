@@ -112,12 +112,39 @@ pub fn get(anime: &str, episode: u32) -> Option<Entry> {
 /// „Continue watching“: pro Anime die zuletzt geschaute Episode. Ist sie fertig, die nächste
 /// (falls es eine gibt). Zuletzt geschaute zuerst.
 pub fn continue_watching(n: usize) -> Vec<Resume> {
-    resumes(&DB.lock().unwrap(), n)
+    resumes(&DB.lock().unwrap(), &HIDDEN.lock().unwrap(), n)
 }
 
-fn resumes(db: &HashMap<Key, Entry>, n: usize) -> Vec<Resume> {
+// ---------- „Watched“: aus „Continue watching“ genommen ----------
+// Datei `hidden.tsv`: Anime-ID und Zeitpunkt. Der Anime bleibt weg (auch bei neuen Folgen und ohne
+// Prüfung auf neue Folgen), bis danach wieder eine Episode geschaut wird (`record` = neuerer Zeitstempel).
+
+type Hidden = HashMap<String, u64>;
+
+static HIDDEN: LazyLock<Mutex<Hidden>> = LazyLock::new(|| {
+    let text = std::fs::read_to_string(data_file("hidden.tsv")).unwrap_or_default();
+    Mutex::new(text.lines().filter_map(|l| l.split_once('\t')).filter_map(|(id, t)| Some((id.to_string(), t.parse().ok()?))).collect())
+});
+
+/// Anime als geschaut markieren: verschwindet aus „Continue watching“.
+pub fn hide(anime: &str) {
+    let mut h = HIDDEN.lock().unwrap();
+    h.insert(anime.to_string(), now());
+    let text: String = h.iter().map(|(id, t)| format!("{id}\t{t}\n")).collect();
+    let p = data_file("hidden.tsv");
+    let _ = std::fs::create_dir_all(p.parent().unwrap());
+    let _ = std::fs::write(p, text);
+}
+
+/// Seit dem Markieren nichts mehr geschaut?
+fn is_hidden(hidden: &Hidden, id: &str, e: &Entry) -> bool {
+    hidden.get(id).is_some_and(|t| e.updated <= *t)
+}
+
+fn resumes(db: &HashMap<Key, Entry>, hidden: &Hidden, n: usize) -> Vec<Resume> {
     let mut out: Vec<(u64, Resume)> = latest(db)
         .into_iter()
+        .filter(|(id, (_, e))| !is_hidden(hidden, id, e))
         .filter_map(|(id, (ep, e))| {
             let (episode, fraction) = if !e.finished() {
                 (ep, e.fraction())
@@ -147,7 +174,7 @@ fn now() -> u64 {
 /// in den letzten Wochen geschaut wurden: hier könnte inzwischen eine neue Folge draußen sein.
 /// Zuletzt geschaute zuerst, höchstens `n`.
 pub fn caught_up(n: usize) -> Vec<(String, u32)> {
-    caught_up_in(&DB.lock().unwrap(), now(), n)
+    caught_up_in(&DB.lock().unwrap(), &HIDDEN.lock().unwrap(), now(), n)
 }
 
 fn latest(db: &HashMap<Key, Entry>) -> HashMap<&str, (u32, &Entry)> {
@@ -160,10 +187,10 @@ fn latest(db: &HashMap<Key, Entry>) -> HashMap<&str, (u32, &Entry)> {
     latest
 }
 
-fn caught_up_in(db: &HashMap<Key, Entry>, now: u64, n: usize) -> Vec<(String, u32)> {
+fn caught_up_in(db: &HashMap<Key, Entry>, hidden: &Hidden, now: u64, n: usize) -> Vec<(String, u32)> {
     let mut v: Vec<(u64, String, u32)> = latest(db)
         .into_iter()
-        .filter(|(_, (ep, e))| e.finished() && *ep >= e.total && now.saturating_sub(e.updated) < AIRING_WINDOW)
+        .filter(|(id, (ep, e))| !is_hidden(hidden, id, e) && e.finished() && *ep >= e.total && now.saturating_sub(e.updated) < AIRING_WINDOW)
         .map(|(id, (_, e))| (e.updated, id.to_string(), e.total))
         .collect();
     v.sort_unstable_by(|a, b| b.0.cmp(&a.0));
@@ -243,7 +270,7 @@ mod tests {
             (("c".into(), 12), e(1350.0, 7, 12)),
         ]
         .into();
-        let r = resumes(&db, 10);
+        let r = resumes(&db, &Hidden::new(), 10);
         assert_eq!(r.iter().map(|r| (r.anime.id.as_str(), r.episode)).collect::<Vec<_>>(), vec![("b", 4), ("a", 3)]);
         assert_eq!(r[0].fraction, 0.5);
         assert_eq!(r[1].fraction, 0.0);
@@ -264,10 +291,17 @@ mod tests {
             (("d".into(), 3), e(1350.0, now - day, 12)),
         ]
         .into();
-        assert_eq!(caught_up_in(&db, now, 10), vec![("a".to_string(), 12)]);
+        assert_eq!(caught_up_in(&db, &Hidden::new(), now, 10), vec![("a".to_string(), 12)]);
+        // Als „Watched“ markiert: keine Prüfung auf neue Folgen mehr.
+        let hidden: Hidden = [("a".to_string(), now)].into();
+        assert!(caught_up_in(&db, &hidden, now, 10).is_empty());
         // Neue Folge erschienen: „Continue watching“ zeigt Folge 13.
         let mut db = db;
         db.get_mut(&("a".to_string(), 12)).unwrap().total = 13;
-        assert!(resumes(&db, 10).iter().any(|r| r.anime.id == "a" && r.episode == 13));
+        assert!(resumes(&db, &Hidden::new(), 10).iter().any(|r| r.anime.id == "a" && r.episode == 13));
+        // Markiert: bleibt trotz neuer Folge weg, bis wieder geschaut wird.
+        assert!(!resumes(&db, &hidden, 10).iter().any(|r| r.anime.id == "a"));
+        db.insert(("a".to_string(), 13), e(300.0, now + 1, 13));
+        assert!(resumes(&db, &hidden, 10).iter().any(|r| r.anime.id == "a" && r.episode == 13));
     }
 }
