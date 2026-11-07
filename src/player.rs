@@ -172,6 +172,8 @@ impl Player {
                 i.set_property("ytdl", false)?;
                 i.set_property("user-agent", crate::anime::USER_AGENT)?;
                 i.set_property("hwdec", "auto-safe")?;
+                // Lauter als normal erlaubt (bis 200 %, mpv-Standard 130 %).
+                i.set_property("volume-max", crate::controls::MAX_VOLUME)?;
                 i.set_property("volume", crate::controls::saved_volume())?;
                 i.set_property("keep-open", true)?;
                 // Sprünge zum nächsten Schlüsselbild statt bildgenau: schneller, Ziel liegt dafür 1–2 s daneben.
@@ -184,7 +186,7 @@ impl Player {
                 i.set_property("demuxer-max-bytes", "1GiB")?;
                 i.set_property("demuxer-max-back-bytes", "512MiB")?;
                 // Lautstärke angleichen: sanft, großes Zeitfenster gegen „Pumpen“ (aus Tube übernommen).
-                i.set_property("af", "lavfi=[dynaudnorm=f=250:g=15:p=0.95]")?;
+                i.set_property("af", "lavfi=[dynaudnorm=f=250:g=15:p=0.95],@fade:lavfi=[volume=1]")?;
                 // Medientasten und Anzeige in der Leiste (MPRIS), falls das mpv-mpris-Plugin installiert ist.
                 if std::path::Path::new(MPRIS_PLUGIN).exists() {
                     i.set_property("scripts", MPRIS_PLUGIN)?;
@@ -385,6 +387,7 @@ impl Player {
         });
         widget.add_overlay(&end_box);
         widget.add_overlay(&controls.widget);
+        widget.add_overlay(&controls.preview);
 
         // „Skip intro“ / „Skip ending“: rechts direkt über der Timeline, im Bubble-Style. Bleibt sichtbar,
         // solange man im Opening/Ending ist (auch wenn die Leiste ausgeblendet ist), Klick springt ans Ende.
@@ -666,7 +669,14 @@ impl Player {
         self.spinner.set_visible(true);
     }
 
-    /// Wiedergabe beenden (Ansehen-Seite verlassen, App schließen). Speichert vorher die Position.
+    /// Läuft ein Video (geladen, kein Fehler, nicht am Ende)? Dann geht es beim Verlassen in den Miniplayer.
+    pub fn active(&self) -> bool {
+        self.track.borrow().load.is_some()
+            && !self.msg.is_visible()
+            && !self.end_home.parent().is_some_and(|b| b.is_visible())
+    }
+
+    /// Wiedergabe beenden (Miniplayer schließen, App schließen). Speichert vorher die Position.
     pub fn stop(&self) {
         save(self.mpv, &self.track);
         self.track.replace(Track::default());
@@ -700,6 +710,22 @@ impl Player {
             self.controls.poke();
             return true;
         }
+        // Lautstärke und Ton weich (controls.rs), nicht als harter Sprung.
+        match key {
+            gdk::Key::Up | gdk::Key::plus | gdk::Key::KP_Add => {
+                self.controls.step_volume(5.0);
+                return true;
+            }
+            gdk::Key::Down | gdk::Key::minus | gdk::Key::KP_Subtract => {
+                self.controls.step_volume(-5.0);
+                return true;
+            }
+            gdk::Key::m => {
+                self.controls.toggle_mute();
+                return true;
+            }
+            _ => {}
+        }
         let cmd: &[&str] = match key {
             gdk::Key::space | gdk::Key::k => &["cycle", "pause"],
             gdk::Key::Left => return jump(-5),
@@ -711,9 +737,6 @@ impl Player {
             gdk::Key::period => &["frame-step"],
             gdk::Key::c => &["cycle", "sub"],
             // Lautstärke: + / - (auch Ziffernblock) und Pfeile hoch/runter.
-            gdk::Key::Up | gdk::Key::plus | gdk::Key::KP_Add => &["add", "volume", "5"],
-            gdk::Key::Down | gdk::Key::minus | gdk::Key::KP_Subtract => &["add", "volume", "-5"],
-            gdk::Key::m => &["cycle", "mute"],
             gdk::Key::greater => return self.speed(1),
             gdk::Key::less => return self.speed(-1),
             _ => return false,

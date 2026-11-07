@@ -127,6 +127,7 @@ impl ShowPage {
         content.append(&status);
         content.append(&flow);
         let widget = gtk::ScrolledWindow::builder().child(&content).hscrollbar_policy(gtk::PolicyType::Never).build();
+        crate::smooth::attach(&widget);
 
         let page = Rc::new(ShowPage {
             widget,

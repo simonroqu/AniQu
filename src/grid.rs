@@ -61,12 +61,16 @@ fn label(text: &str, classes: &[&str]) -> gtk::Label {
 /// Poster laden (aus dem Cache oder aus dem Netz) und anzeigen.
 pub fn load_poster(pic: &gtk::Picture, url: Option<String>) {
     let Some(url) = url else { return };
+    // Unsichtbar bis zum Laden, dann einblenden (style.css `.fade`).
+    pic.add_css_class("fade");
+    pic.remove_css_class("loaded");
     let pic = pic.downgrade();
     glib::spawn_future_local(async move {
         let Ok(bytes) = bg(anime::poster(url)).await else { return };
         let Ok(tex) = gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)) else { return };
         if let Some(pic) = pic.upgrade() {
             pic.set_paintable(Some(&tex));
+            pic.add_css_class("loaded");
         }
     });
 }
@@ -93,7 +97,8 @@ fn card(item: &Item, width: i32) -> (gtk::Box, gtk::Picture) {
         .css_classes(["thumb"])
         .build();
     load_poster(&pic, a.poster.clone());
-    let thumb = gtk::Overlay::builder().child(&pic).build();
+    // Grauer Platzhalter in Bildgröße, bis das Bild da ist; schneidet auch den Hover-Zoom ab.
+    let thumb = gtk::Overlay::builder().child(&pic).overflow(gtk::Overflow::Hidden).css_classes(["thumb-box"]).build();
 
     // Anzahl Episoden mit Untertiteln / Synchronisation, unten links.
     let badges = gtk::Box::builder().spacing(4).halign(gtk::Align::Start).valign(gtk::Align::End).margin_start(6).margin_bottom(6).build();
@@ -199,6 +204,7 @@ impl Grid {
             content.append(&s.flow);
         }
         let scroll = gtk::ScrolledWindow::builder().child(&content).hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).build();
+        crate::smooth::attach(&scroll);
         let widget = gtk::Overlay::builder().child(&scroll).build();
         widget.add_overlay(&sizer);
 

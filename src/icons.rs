@@ -5,7 +5,7 @@
 use gtk4 as gtk;
 use std::path::PathBuf;
 
-const ICONS: [(&str, &str); 14] = [
+const ICONS: [(&str, &str); 15] = [
     ("aniqu-search-symbolic", include_str!("../data/icons/aniqu-search-symbolic.svg")),
     ("aniqu-home-symbolic", include_str!("../data/icons/aniqu-home-symbolic.svg")),
     ("aniqu-back-symbolic", include_str!("../data/icons/aniqu-back-symbolic.svg")),
@@ -20,6 +20,7 @@ const ICONS: [(&str, &str); 14] = [
     ("aniqu-reload-symbolic", include_str!("../data/icons/aniqu-reload-symbolic.svg")),
     ("aniqu-subtitles-symbolic", include_str!("../data/icons/aniqu-subtitles-symbolic.svg")),
     ("aniqu-spinner-symbolic", include_str!("../data/icons/aniqu-spinner-symbolic.svg")),
+    ("aniqu-close-symbolic", include_str!("../data/icons/aniqu-close-symbolic.svg")),
 ];
 
 /// Lade-Kreis: eigenes Icon, per CSS gedreht (`.aniqu-spinner` in style.css), sichtbar = läuft.

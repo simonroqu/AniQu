@@ -23,6 +23,9 @@ const PLAYER_MARGIN: i32 = 5;
 const PLAYER_WIDTH: f64 = 0.85;
 /// Unter dieser Fensterbreite nimmt der Player die volle Breite ein.
 const FULL_WIDTH_BELOW: i32 = 1600;
+/// Miniplayer unten rechts (Seite verlassen, Video läuft weiter): Breite und Abstand zum Fensterrand.
+const MINI_WIDTH: i32 = 400;
+const MINI_MARGIN: i32 = 16;
 
 /// Seitenrand des Players: so viel, dass er mittig `PLAYER_WIDTH` der Breite einnimmt, mindestens
 /// `PLAYER_MARGIN`. Im Vollbild kein Rand.
@@ -51,6 +54,8 @@ pub struct WatchPage {
     size: Cell<(i32, i32)>,
     aspect: Cell<f64>,
     fullscreen: Cell<bool>,
+    /// Miniplayer: nur das Video, klein unten rechts über der aktuellen Seite.
+    mini: Cell<bool>,
     /// Was gerade läuft (für Zurück zur Anime-Seite, vorherige/nächste Episode).
     pub current: RefCell<Option<Play>>,
 }
@@ -96,10 +101,12 @@ impl WatchPage {
         content.append(player);
         content.append(&info);
         let scroll = gtk::ScrolledWindow::builder().child(&content).hscrollbar_policy(gtk::PolicyType::Never).build();
+        crate::smooth::attach(&scroll);
 
         // Unsichtbare Messfläche über der ganzen Seite: liefert Breite und Höhe für die Player-Höhe.
         let sizer = gtk::DrawingArea::builder().can_target(false).build();
-        let widget = gtk::Overlay::builder().child(&scroll).build();
+        // Liegt als Ebene über den Seiten (main.rs), daher eigener Hintergrund (außer als Miniplayer).
+        let widget = gtk::Overlay::builder().child(&scroll).css_classes(["background"]).visible(false).build();
         widget.add_overlay(&sizer);
 
         let page = Rc::new(WatchPage {
@@ -114,6 +121,7 @@ impl WatchPage {
             size: Cell::new((0, 0)),
             aspect: Cell::new(16.0 / 9.0),
             fullscreen: Cell::new(false),
+            mini: Cell::new(false),
             current: RefCell::default(),
         });
 
@@ -131,6 +139,19 @@ impl WatchPage {
     }
 
     fn fit_player(&self) {
+        if self.mini.get() {
+            let a = if self.aspect.get() > 0.0 { self.aspect.get() } else { 16.0 / 9.0 };
+            let h = (MINI_WIDTH as f64 / a).round() as i32;
+            self.player.set_margin_top(0);
+            self.player.set_margin_start(0);
+            self.player.set_margin_bottom(0);
+            self.player.set_margin_end(0);
+            self.player.add_css_class("rounded");
+            self.player.set_size_request(-1, h);
+            self.widget.set_size_request(MINI_WIDTH, h);
+            return;
+        }
+        self.widget.set_size_request(-1, -1);
         let (w, h) = self.size.get();
         let fs = self.fullscreen.get();
         let m = if fs { 0 } else { PLAYER_MARGIN };
@@ -155,9 +176,37 @@ impl WatchPage {
         self.fit_player();
     }
 
+    pub fn is_mini(&self) -> bool {
+        self.mini.get()
+    }
+
+    /// Miniplayer an/aus: dieselbe Seite samt Player, nur klein unten rechts und ohne Infos
+    /// (der Player wird nicht umgehängt, sonst müsste mpv seine Video-Fläche neu aufbauen).
+    pub fn set_mini(&self, on: bool) {
+        self.mini.set(on);
+        let align = if on { gtk::Align::End } else { gtk::Align::Fill };
+        self.widget.set_halign(align);
+        self.widget.set_valign(align);
+        let m = if on { MINI_MARGIN } else { 0 };
+        self.widget.set_margin_end(m);
+        self.widget.set_margin_bottom(m);
+        if on {
+            self.widget.remove_css_class("background");
+            self.widget.add_css_class("mini");
+            self.scroll.vadjustment().set_value(0.0);
+        } else {
+            self.widget.add_css_class("background");
+            self.widget.remove_css_class("mini");
+        }
+        let v = if on { gtk::PolicyType::Never } else { gtk::PolicyType::Automatic };
+        self.scroll.set_policy(gtk::PolicyType::Never, v);
+        self.info.set_visible(!on && !self.fullscreen.get());
+        self.fit_player();
+    }
+
     pub fn set_fullscreen(&self, fullscreen: bool) {
         self.fullscreen.set(fullscreen);
-        self.info.set_visible(!fullscreen);
+        self.info.set_visible(!fullscreen && !self.mini.get());
         self.scroll.vadjustment().set_value(0.0);
         self.fit_player();
     }
