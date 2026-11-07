@@ -1,4 +1,4 @@
-//! Raster aus Anime-Karten (Poster). Startseite (Trending + „Continue watching“) und Suche.
+//! Raster aus Anime-Karten (Poster). Startseite („Continue watching“ + Trending) und Suche.
 
 use crate::anime::{self, Anime};
 use crate::bg;
@@ -17,13 +17,20 @@ pub fn fmt_duration(s: u32) -> String {
 /// Kleinste Kartenbreite plus Abstand, um aus der verfügbaren Breite die Spaltenzahl zu berechnen.
 /// Die Karten wachsen dann mit, bis die Reihe gefüllt ist.
 const CARD_WIDTH: i32 = 170;
-/// Höchstens so viele Karten pro Reihe (auch im Vollbild), damit sie groß bleiben.
-const MAX_COLUMNS: i32 = 6;
+/// Höchstens so viele Karten pro Reihe. Hoch genug, dass Poster im Vollbild nicht riesig werden
+/// (Kartenbreite bleibt so etwa zwischen 170 und 250 px).
+const MAX_COLUMNS: i32 = 12;
 const COLUMN_SPACING: i32 = 16;
-/// So viele Trending-Animes auf der Startseite.
-const TRENDING: usize = 6;
 /// Höchstens so viele Animes in „Continue watching“.
 const SHELF_MAX: usize = 30;
+/// So viele Animes, bei denen man auf dem Stand ist, werden auf neue Folgen geprüft (je 1 Anfrage).
+const NEW_EPISODE_CHECKS: usize = 10;
+/// Neue Folgen höchstens so oft prüfen (Startseite wird oft geöffnet).
+const NEW_EPISODE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+thread_local! {
+    static LAST_CHECK: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
+}
 /// Abstand oben bis zur ersten Karte (unter der schwebenden Navigation).
 const TOP_MARGIN: i32 = 56;
 
@@ -171,7 +178,6 @@ impl Grid {
         let trending = Section::new("Trending");
         let shelf = Section::new("Continue watching");
         let results = Section::new("");
-        shelf.title.set_margin_top(32);
         // Laden: nur ein Spinner. Das Label zeigt nur Fehler oder „keine Ergebnisse“.
         let status = gtk::Label::builder().visible(false).margin_top(48).wrap(true).build();
         let spinner = crate::icons::spinner(32).margin_top(48).visible(false).build();
@@ -187,7 +193,8 @@ impl Grid {
             .build();
         content.append(&spinner);
         content.append(&status);
-        for s in [&trending, &shelf, &results] {
+        // „Continue watching“ ganz oben, darunter Trending.
+        for s in [&shelf, &trending, &results] {
             content.append(&s.title);
             content.append(&s.flow);
         }
@@ -265,8 +272,52 @@ impl Grid {
     }
 
     fn fill_shelf(&self) {
-        let items = progress::continue_watching(SHELF_MAX).into_iter().map(Item::Resume).collect();
+        let items: Vec<Item> = progress::continue_watching(SHELF_MAX).into_iter().map(Item::Resume).collect();
+        // Abstand zu Trending nur, wenn darüber „Continue watching“ steht.
+        self.trending.title.set_margin_top(if items.is_empty() { 0 } else { 32 });
         self.shelf.set(items, self.column_width.get());
+    }
+
+    /// Laufende Animes, bei denen man auf dem Stand ist: neue Folge draußen? Dann kommt die nächste
+    /// Episode in „Continue watching“. Im Hintergrund, höchstens alle 10 Minuten.
+    fn check_new_episodes(self: &Rc<Self>) {
+        if LAST_CHECK.with(|c| c.get()).is_some_and(|t| t.elapsed() < NEW_EPISODE_INTERVAL) {
+            return;
+        }
+        let list = progress::caught_up(NEW_EPISODE_CHECKS);
+        if list.is_empty() {
+            return;
+        }
+        LAST_CHECK.with(|c| c.set(Some(std::time::Instant::now())));
+        let grid = Rc::downgrade(self);
+        let busy = crate::Busy::new();
+        glib::spawn_future_local(async move {
+            let found = bg(async move {
+                // Alle gleichzeitig; Fehler (offline, Seite geändert) heißt einfach: keine neue Folge.
+                let tasks: Vec<_> = list
+                    .into_iter()
+                    .map(|(id, total)| tokio::spawn(async move { (anime::details(id.clone()).await, id, total) }))
+                    .collect();
+                let mut found = Vec::new();
+                for t in tasks {
+                    let Ok((Ok(d), id, total)) = t.await else { continue };
+                    // Verfügbar in der Sprache, die man schaut (Dub kommt oft später).
+                    let now = if crate::lists::dub(&id) { d.anime.dub } else { d.anime.sub };
+                    if let Some(n) = now.filter(|n| *n > total) {
+                        found.push((id, n));
+                    }
+                }
+                found
+            })
+            .await;
+            drop(busy);
+            for (id, n) in &found {
+                progress::set_total(id, *n);
+            }
+            if let Some(g) = grid.upgrade().filter(|g| !found.is_empty() && g.is_home()) {
+                g.fill_shelf();
+            }
+        });
     }
 
     fn begin(&self, query: Option<String>) -> u64 {
@@ -290,7 +341,8 @@ impl Grid {
         let w = self.column_width.get();
         self.results.set(vec![], w);
         self.fill_shelf();
-        let saved: Vec<Item> = anime::saved_trending().into_iter().take(TRENDING).map(Item::Anime).collect();
+        self.check_new_episodes();
+        let saved: Vec<Item> = anime::saved_trending().into_iter().map(Item::Anime).collect();
         let has_saved = !saved.is_empty();
         // Bisheriges bleibt beim Reload stehen, bis das Neue da ist (Lade-Kreis in der Bubble).
         if has_saved || self.trending.items.borrow().is_empty() {
@@ -308,8 +360,8 @@ impl Grid {
             grid.spinner.set_visible(false);
             match res {
                 Ok(list) => {
-                    anime::save_trending(&list[..list.len().min(TRENDING)]);
-                    let items = list.into_iter().take(TRENDING).map(Item::Anime).collect();
+                    anime::save_trending(&list);
+                    let items = list.into_iter().map(Item::Anime).collect();
                     grid.trending.set(items, grid.column_width.get());
                 }
                 Err(e) if grid.trending.items.borrow().is_empty() => grid.message(&format!("Error: {e}")),
@@ -365,10 +417,11 @@ mod tests {
     fn formats_and_columns() {
         assert_eq!(fmt_duration(59), "0:59");
         assert_eq!(fmt_duration(3725), "1:02:05");
-        // Spalten: schmal 1, Standardfenster (1280) 6, nie mehr als 6.
+        // Spalten: schmal 1, Standardfenster (1280) 6, Vollbild 1920 → 9, 2560 → 13 → höchstens 12.
         assert_eq!(columns(150), 1);
         assert_eq!(columns(1248), 6);
-        assert_eq!(columns(2528), 6);
+        assert_eq!(columns(1888), 9);
+        assert_eq!(columns(2528), 12);
         assert_eq!(poster_height(200), 300);
     }
 }

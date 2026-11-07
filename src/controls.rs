@@ -426,6 +426,12 @@ impl Controls {
         self.poke();
     }
 
+    /// Oberkante der Timeline in den Koordinaten von `target` (z. B. für Knöpfe direkt darüber).
+    /// `None`, solange die Leiste nicht angeordnet ist.
+    pub fn timeline_top(&self, target: &impl IsA<gtk::Widget>) -> Option<f32> {
+        self.seek.compute_bounds(target).map(|r| r.y()).filter(|y| *y > 0.0)
+    }
+
     pub fn connect_quality(&self, f: impl Fn(u32) + 'static) {
         self.on_quality.replace(Some(Box::new(f)));
     }

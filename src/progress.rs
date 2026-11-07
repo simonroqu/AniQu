@@ -14,6 +14,8 @@ const MIN_WATCHED: f64 = 30.0;
 const FINISHED_AT: f64 = 0.9;
 /// Beim Fortsetzen ein paar Sekunden zurückspringen, um wieder reinzukommen.
 const REWIND: f64 = 3.0;
+/// Auf neue Folgen prüfen nur bei Animes, die in dieser Zeit geschaut wurden (laufende Staffeln).
+const AIRING_WINDOW: u64 = 60 * 86400;
 
 /// Was gerade läuft: reicht zum Speichern und für „Continue watching“.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -22,7 +24,7 @@ pub struct Meta {
     pub episode: u32,
     pub title: String,
     pub poster: Option<String>,
-    /// Anzahl Episoden (für „nächste Episode“ in „Continue watching“).
+    /// Anzahl verfügbarer Episoden (in der gewählten Sprache), für „nächste Episode“ in „Continue watching“.
     pub total: u32,
 }
 
@@ -114,13 +116,7 @@ pub fn continue_watching(n: usize) -> Vec<Resume> {
 }
 
 fn resumes(db: &HashMap<Key, Entry>, n: usize) -> Vec<Resume> {
-    let mut latest: HashMap<&str, (u32, &Entry)> = HashMap::new();
-    for ((id, ep), e) in db {
-        if latest.get(id.as_str()).is_none_or(|(_, old)| e.updated > old.updated) {
-            latest.insert(id, (*ep, e));
-        }
-    }
-    let mut out: Vec<(u64, Resume)> = latest
+    let mut out: Vec<(u64, Resume)> = latest(db)
         .into_iter()
         .filter_map(|(id, (ep, e))| {
             let (episode, fraction) = if !e.finished() {
@@ -143,6 +139,49 @@ fn resumes(db: &HashMap<Key, Entry>, n: usize) -> Vec<Resume> {
     out.into_iter().take(n).map(|(_, r)| r).collect()
 }
 
+fn now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Animes, bei denen man auf dem neuesten Stand ist (letzte bekannte Episode fertig geschaut) und die
+/// in den letzten Wochen geschaut wurden: hier könnte inzwischen eine neue Folge draußen sein.
+/// Zuletzt geschaute zuerst, höchstens `n`.
+pub fn caught_up(n: usize) -> Vec<(String, u32)> {
+    caught_up_in(&DB.lock().unwrap(), now(), n)
+}
+
+fn latest(db: &HashMap<Key, Entry>) -> HashMap<&str, (u32, &Entry)> {
+    let mut latest: HashMap<&str, (u32, &Entry)> = HashMap::new();
+    for ((id, ep), e) in db {
+        if latest.get(id.as_str()).is_none_or(|(_, old)| e.updated > old.updated) {
+            latest.insert(id, (*ep, e));
+        }
+    }
+    latest
+}
+
+fn caught_up_in(db: &HashMap<Key, Entry>, now: u64, n: usize) -> Vec<(String, u32)> {
+    let mut v: Vec<(u64, String, u32)> = latest(db)
+        .into_iter()
+        .filter(|(_, (ep, e))| e.finished() && *ep >= e.total && now.saturating_sub(e.updated) < AIRING_WINDOW)
+        .map(|(id, (_, e))| (e.updated, id.to_string(), e.total))
+        .collect();
+    v.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    v.into_iter().take(n).map(|(_, id, total)| (id, total)).collect()
+}
+
+/// Neue Episodenzahl eines Animes merken (neue Folge erschienen): dann zeigt „Continue watching“
+/// die nächste Episode.
+pub fn set_total(anime: &str, total: u32) {
+    let mut db = DB.lock().unwrap();
+    for ((id, _), e) in db.iter_mut() {
+        if id == anime {
+            e.total = total;
+        }
+    }
+    persist(&db);
+}
+
 /// Stelle zum Fortsetzen, falls die Episode angefangen und nicht fertig ist.
 pub fn resume_at(anime: &str, episode: u32) -> Option<f64> {
     let e = get(anime, episode)?;
@@ -154,15 +193,18 @@ pub fn record(m: &Meta, pos: f64, dur: f64) {
     if dur <= 0.0 || pos < MIN_WATCHED {
         return;
     }
-    let updated = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let mut db = DB.lock().unwrap();
-    let entry = Entry { pos, dur, updated, title: m.title.clone(), poster: m.poster.clone().unwrap_or_default(), total: m.total };
+    let entry = Entry { pos, dur, updated: now(), title: m.title.clone(), poster: m.poster.clone().unwrap_or_default(), total: m.total };
     db.insert((m.anime.clone(), m.episode), entry);
+    persist(&db);
+}
+
+fn persist(db: &HashMap<Key, Entry>) {
     // Erst in eine Hilfsdatei schreiben, dann umbenennen: ein Absturz mittendrin zerstört nichts.
     let p = path();
     let tmp = p.with_extension("tsv.tmp");
     let ok = std::fs::create_dir_all(p.parent().unwrap())
-        .and_then(|_| std::fs::write(&tmp, serialize(&db)))
+        .and_then(|_| std::fs::write(&tmp, serialize(db)))
         .and_then(|_| std::fs::rename(&tmp, &p));
     if let Err(e) = ok {
         eprintln!("Fortschritt nicht gespeichert: {e}");
@@ -205,5 +247,27 @@ mod tests {
         assert_eq!(r.iter().map(|r| (r.anime.id.as_str(), r.episode)).collect::<Vec<_>>(), vec![("b", 4), ("a", 3)]);
         assert_eq!(r[0].fraction, 0.5);
         assert_eq!(r[1].fraction, 0.0);
+    }
+
+    #[test]
+    fn caught_up_only_recent_and_finished() {
+        let day = 86400;
+        let now = 100 * day;
+        let db: HashMap<Key, Entry> = [
+            // a: letzte Folge (12 von 12) fertig, vor 3 Tagen -> prüfen.
+            (("a".into(), 12), e(1350.0, now - 3 * day, 12)),
+            // b: mitten in Folge 4 -> nicht (steht ohnehin in „Continue watching“).
+            (("b".into(), 4), e(700.0, now - day, 12)),
+            // c: auf dem Stand, aber vor 90 Tagen -> nicht mehr prüfen.
+            (("c".into(), 5), e(1350.0, now - 90 * day, 5)),
+            // d: Folge 3 von 12 fertig -> nicht (nächste Folge gibt es schon).
+            (("d".into(), 3), e(1350.0, now - day, 12)),
+        ]
+        .into();
+        assert_eq!(caught_up_in(&db, now, 10), vec![("a".to_string(), 12)]);
+        // Neue Folge erschienen: „Continue watching“ zeigt Folge 13.
+        let mut db = db;
+        db.get_mut(&("a".to_string(), 12)).unwrap().total = 13;
+        assert!(resumes(&db, 10).iter().any(|r| r.anime.id == "a" && r.episode == 13));
     }
 }

@@ -1,4 +1,4 @@
-//! ani-skip: von der Community markierte Openings und Endings automatisch überspringen.
+//! ani-skip: von der Community markierte Openings und Endings; der Player bietet dort „Skip intro“ an.
 //! Fragt api.aniskip.com (MyAnimeList-ID + Episodennummer), nicht hianime.
 
 use std::sync::LazyLock;
@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 pub struct Segment {
     pub start: f64,
     pub end: f64,
-    /// Anzeigename, z. B. „opening“.
+    /// Anzeigename für den Knopf („Skip intro“, „Skip ending“).
     pub label: &'static str,
 }
 
@@ -29,7 +29,7 @@ fn parse(json: &serde_json::Value) -> Vec<Segment> {
         .flatten()
         .filter_map(|r| {
             let label = match r["skipType"].as_str()? {
-                "op" => "opening",
+                "op" => "intro",
                 "ed" => "ending",
                 _ => return None,
             };
@@ -42,10 +42,10 @@ fn parse(json: &serde_json::Value) -> Vec<Segment> {
     out
 }
 
-/// Liegt `pos` in einem noch nicht übersprungenen Abschnitt? Dann dessen Index.
-/// Kurz vor dem Ende nicht mehr springen (sonst Sprung um Bruchteile einer Sekunde).
-pub fn to_skip(segments: &[Segment], skipped: &[usize], pos: f64) -> Option<usize> {
-    segments.iter().enumerate().position(|(i, s)| !skipped.contains(&i) && pos >= s.start && pos < s.end - 0.5)
+/// Liegt `pos` in einem Abschnitt? Dann dessen Index. Kurz vor dem Ende nicht mehr (Sprung um Bruchteile
+/// einer Sekunde lohnt nicht).
+pub fn segment_at(segments: &[Segment], pos: f64) -> Option<usize> {
+    segments.iter().position(|s| pos >= s.start && pos < s.end - 0.5)
 }
 
 #[cfg(test)]
@@ -61,10 +61,11 @@ mod tests {
         ]});
         let s = parse(&json);
         assert_eq!(s.len(), 2, "nur Opening und Ending");
-        assert_eq!((s[0].start, s[0].label), (3.2, "opening"));
-        assert_eq!(to_skip(&s, &[], 10.0), Some(0));
-        assert_eq!(to_skip(&s, &[0], 10.0), None, "schon übersprungen: nicht nochmal");
-        assert_eq!(to_skip(&s, &[], 93.0), None, "kurz vor Ende nicht mehr springen");
+        assert_eq!((s[0].start, s[0].label), (3.2, "intro"));
+        assert_eq!(segment_at(&s, 10.0), Some(0));
+        assert_eq!(segment_at(&s, 1420.0), Some(1));
+        assert_eq!(segment_at(&s, 93.0), None, "kurz vor Ende nicht mehr anbieten");
+        assert_eq!(segment_at(&s, 500.0), None);
         assert!(parse(&serde_json::json!({"found": false})).is_empty());
     }
 }

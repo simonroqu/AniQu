@@ -282,7 +282,8 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
                 episode: ep.number,
                 title: p.anime.title.clone(),
                 poster: p.anime.poster.clone(),
-                total: p.episodes.len() as u32,
+                // Bei Dub zählen nur die synchronisierten Folgen (kommen oft später als die Untertitel).
+                total: if p.dub { p.anime.dub.map_or(p.episodes.len() as u32, |n| n.min(p.episodes.len() as u32)) } else { p.episodes.len() as u32 },
             };
             let (player, play_gen) = (player.clone(), play_gen.clone());
             let mode = if p.dub { "dub" } else { "sub" }.to_string();

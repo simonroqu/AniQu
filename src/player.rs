@@ -51,9 +51,8 @@ struct Track {
     stream: Option<Stream>,
     base_opts: String,
     last_save: Option<Instant>,
-    /// ani-skip-Abschnitte und welche davon schon übersprungen wurden (nur einmal springen).
+    /// ani-skip-Abschnitte (Opening/Ending): dort erscheint „Skip intro“ bzw. „Skip ending“.
     segments: Vec<crate::aniskip::Segment>,
-    skipped: Vec<usize>,
     /// Was zuletzt geladen wurde (URL, Optionen), für einen zweiten Versuch bei Fehlern.
     load: Option<(String, String)>,
     retried: bool,
@@ -73,6 +72,11 @@ pub fn toast(label: &gtk::Label, text: &str) {
         }
     });
 }
+
+/// Abstand des „Skip intro“-Knopfs über der Timeline, und sein Abstand nach unten, bevor die Leiste
+/// einmal angeordnet war (ungefähr Oberkante der Timeline).
+const SKIP_GAP: i32 = 8;
+const SKIP_MARGIN: i32 = 80;
 
 /// Wie oft während des Abspielens gespeichert wird (zusätzlich bei Pause, Stopp, Schließen).
 const SAVE_EVERY: Duration = Duration::from_secs(5);
@@ -359,15 +363,6 @@ impl Player {
         let spinner = crate::icons::spinner(32).halign(gtk::Align::Center).valign(gtk::Align::Center).visible(false).build();
         widget.add_overlay(&spinner);
         let on_aspect: Rc<RefCell<Option<Box<dyn Fn(f64)>>>> = Rc::default();
-        let note = gtk::Label::builder()
-            .halign(gtk::Align::Start)
-            .valign(gtk::Align::Start)
-            .margin_start(16)
-            .margin_top(16)
-            .visible(false)
-            .css_classes(["osd", "pill"])
-            .build();
-        widget.add_overlay(&note);
         widget.add_overlay(&flash);
 
         // Endbildschirm: Nochmal / Nächste Episode / Zur Startseite (nur Icons).
@@ -390,6 +385,37 @@ impl Player {
         });
         widget.add_overlay(&end_box);
         widget.add_overlay(&controls.widget);
+
+        // „Skip intro“ / „Skip ending“: rechts direkt über der Timeline, im Bubble-Style. Bleibt sichtbar,
+        // solange man im Opening/Ending ist (auch wenn die Leiste ausgeblendet ist), Klick springt ans Ende.
+        let skip_label = gtk::Label::new(None);
+        let skip_button = gtk::Button::builder()
+            .child(&skip_label)
+            .focusable(false)
+            .cursor(&gdk::Cursor::from_name("pointer", None).unwrap())
+            .build();
+        let skip = gtk::Box::builder()
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::End)
+            .margin_end(16)
+            .margin_bottom(SKIP_MARGIN)
+            .visible(false)
+            .css_classes(["bubble"])
+            .build();
+        skip.append(&skip_button);
+        widget.add_overlay(&skip);
+        let skip_to: Rc<Cell<Option<f64>>> = Rc::default();
+        skip_button.connect_clicked({
+            let (skip, skip_to) = (skip.downgrade(), skip_to.clone());
+            move |_| {
+                if let Some(end) = skip_to.take() {
+                    let _ = mpv.command("seek", &[&end.to_string(), "absolute"]);
+                }
+                if let Some(s) = skip.upgrade() {
+                    s.set_visible(false);
+                }
+            }
+        });
         let on_playing: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::default();
 
         glib::spawn_future_local({
@@ -401,6 +427,7 @@ impl Player {
             let (flash, end_box) = (flash.clone(), end_box.clone());
             let controls = controls.clone();
             let track = track.clone();
+            let (skip, skip_label, skip_to, player_widget) = (skip.clone(), skip_label.clone(), skip_to.clone(), widget.clone());
             async move {
                 let mut log: Vec<String> = Vec::new();
                 // Erst nach dem ersten Laden zeigt der Spinner Puffern/Springen; davor regeln Start/Geladen ihn.
@@ -417,6 +444,8 @@ impl Player {
                                 log.clear();
                                 loaded = false;
                                 end_box.set_visible(false);
+                                skip.set_visible(false);
+                                skip_to.set(None);
                                 msg.set_visible(false);
                                 retry.set_visible(false);
                                 spinner.set_visible(true);
@@ -464,14 +493,27 @@ impl Player {
                                 if (name == "time-pos" && due) || (name == "pause" && matches!(change, PropertyData::Flag(true))) {
                                     save(mpv, &track);
                                 }
-                                // ani-skip: im Opening/Ending ans Ende springen.
+                                // ani-skip: im Opening/Ending „Skip intro“ bzw. „Skip ending“ anbieten.
                                 if let (true, PropertyData::Double(pos)) = (name == "time-pos", &change) {
-                                    let mut t = track.borrow_mut();
-                                    if let Some(i) = crate::aniskip::to_skip(&t.segments, &t.skipped, *pos) {
-                                        t.skipped.push(i);
-                                        let s = t.segments[i].clone();
-                                        let _ = mpv.command("seek", &[&s.end.to_string(), "absolute"]);
-                                        toast(&note, &format!("Skipped {}", s.label));
+                                    let seg = {
+                                        let t = track.borrow();
+                                        crate::aniskip::segment_at(&t.segments, *pos).map(|i| t.segments[i].clone())
+                                    };
+                                    match seg {
+                                        Some(s) => {
+                                            skip_label.set_text(&format!("Skip {}", s.label));
+                                            skip_to.set(Some(s.end));
+                                            // Direkt über der Timeline; ist die Leiste gerade nicht angeordnet, Stelle behalten.
+                                            if let Some(y) = controls.timeline_top(&player_widget) {
+                                                skip.set_margin_bottom((player_widget.height() as f32 - y) as i32 + SKIP_GAP);
+                                            }
+                                            skip.set_visible(true);
+                                        }
+                                        None if skip.is_visible() => {
+                                            skip.set_visible(false);
+                                            skip_to.set(None);
+                                        }
+                                        None => {}
                                     }
                                 }
                                 // Einblendungen bei Änderungen durch den Nutzer (nicht direkt nach dem Start).

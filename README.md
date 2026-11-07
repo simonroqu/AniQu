@@ -6,7 +6,7 @@ Same look and feel as [Tube](https://github.com/simonroqu/tube).
 - Home page with the six trending shows and everything you're in the middle of
 - Search, show pages with all episodes, sub/dub switch (remembered per show)
 - Embedded mpv player with its own controls, subtitles and quality switch
-- Skips openings and endings automatically ([AniSkip](https://aniskip.com))
+- "Skip intro" / "Skip ending" button during openings and endings ([AniSkip](https://aniskip.com))
 - Continue watching per episode, playback speed per show
 - Follows your [Omarchy](https://omarchy.org) theme live, ships its own default theme otherwise
 
