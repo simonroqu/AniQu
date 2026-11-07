@@ -185,8 +185,8 @@ impl Player {
                 i.set_property("cache-secs", 36000)?;
                 i.set_property("demuxer-max-bytes", "1GiB")?;
                 i.set_property("demuxer-max-back-bytes", "512MiB")?;
-                // Lautstärke angleichen: sanft, großes Zeitfenster gegen „Pumpen“ (aus Tube übernommen).
-                i.set_property("af", "lavfi=[dynaudnorm=f=250:g=15:p=0.95],@fade:lavfi=[volume=1]")?;
+                // Nur der Fade-Filter für weiches Aus-/Einblenden (controls.rs).
+                i.set_property("af", "@fade:lavfi=[volume=1]")?;
                 // Medientasten und Anzeige in der Leiste (MPRIS), falls das mpv-mpris-Plugin installiert ist.
                 if std::path::Path::new(MPRIS_PLUGIN).exists() {
                     i.set_property("scripts", MPRIS_PLUGIN)?;
