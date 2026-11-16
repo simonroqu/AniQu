@@ -372,6 +372,7 @@ impl ShowPage {
             let bar = gtk::ProgressBar::builder().fraction(entry.as_ref().map_or(0.0, |e| e.fraction())).margin_top(4).css_classes(["watched"]).build();
             bar.set_opacity(if entry.is_some() { 1.0 } else { 0.0 });
             tile.append(&bar);
+            crate::fly::register(&ep.id, &tile);
             if entry.is_some_and(|e| e.finished()) {
                 tile.set_opacity(0.5);
             }

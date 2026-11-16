@@ -1,6 +1,7 @@
 mod anime;
 mod aniskip;
 mod controls;
+mod fly;
 mod grid;
 mod icons;
 mod lists;
@@ -82,6 +83,8 @@ struct Nav {
     page_layer: gtk::Overlay,
     in_player: Cell<bool>,
     watch: Rc<watch::WatchPage>,
+    /// Umgibt die Ansehen-Seite für die Öffnen-/Miniplayer-Animation (fly.rs).
+    zoom: fly::Zoom,
     /// Knöpfe im Miniplayer (Pause, Ton, Zurück zum Video, Schließen).
     mini_bar: gtk::Box,
 }
@@ -111,13 +114,17 @@ impl Nav {
             self.close_mini();
         }
         self.watch.widget.set_visible(watch || self.watch.is_mini());
-        if appear {
+        if appear && !self.zoom.animating() {
             // Die CSS-Animation startet nur neu, wenn sich ihr Name ändert: zwischen a und b wechseln.
             let w = &self.watch.widget;
             let a = w.has_css_class("page-in-a");
             w.remove_css_class(if a { "page-in-a" } else { "page-in-b" });
             w.add_css_class(if a { "page-in-b" } else { "page-in-a" });
         }
+        // Von/zur Ansehen-Seite ohne Überblendung: die liegt als eigene Ebene darüber (Zoom-Animation),
+        // im Stack steht nur ein leerer Platzhalter. Mit Überblendung wäre es beim Schrumpfen dahinter schwarz.
+        let fade = !watch && self.current() != "watch";
+        self.stack.set_transition_type(if fade { gtk::StackTransitionType::Crossfade } else { gtk::StackTransitionType::None });
         self.stack.set_visible_child_name(page);
         self.back.set_visible(!self.history.borrow().is_empty());
 
@@ -131,7 +138,14 @@ impl Nav {
     }
 
     fn set_mini(&self, on: bool) {
+        // Wechsel groß ↔ klein bei laufendem Video: die Seite schrumpft/wächst vom alten Platz aus.
+        let from = (self.watch.is_mini() != on && self.player.active()).then(|| self.zoom.anchor_bounds()).flatten();
+        // Beim Großwerden bleibt die Seite darunter stehen, bis die Animation fertig ist.
+        let backdrop = from.filter(|_| !on).and_then(|_| self.zoom.backdrop(&self.stack));
         self.watch.set_mini(on);
+        if let Some(from) = from {
+            self.zoom.animate_from(from, backdrop);
+        }
         self.mini_bar.set_visible(on);
         // Die große Leiste passt nicht in den kleinen Player.
         self.player.controls.widget.set_visible(!on);
@@ -299,25 +313,33 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
     });
     let _ = watch_cell.set(watch.clone());
 
-    // Miniplayer: kleine Bubble im Video. Die Symbole folgen den Knöpfen der großen Leiste.
+    // Miniplayer-Knöpfe in den Ecken, je eine Bubble: oben links groß machen, oben rechts schließen,
+    // unten links Play und Ton. Die Symbole folgen den Knöpfen der großen Leiste.
     let mini_bar = gtk::Box::builder()
-        .spacing(2)
-        .height_request(32)
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::End)
+        .orientation(gtk::Orientation::Vertical)
+        .margin_start(8)
+        .margin_end(8)
+        .margin_top(8)
         .margin_bottom(8)
-        .css_classes(["bubble"])
         .visible(false)
         .build();
+    let bubble = || gtk::Box::builder().spacing(2).height_request(32).css_classes(["bubble"]).build();
+    let (mini_top_left, mini_top_right, mini_bottom) = (bubble(), bubble(), bubble());
     let mini_play = nav_button("aniqu-pause-symbolic", "Play/Pause");
     player.controls.play.bind_property("icon-name", &mini_play, "icon-name").sync_create().build();
     let mini_mute = nav_button("aniqu-volume-symbolic", "Mute");
     player.controls.mute.bind_property("icon-name", &mini_mute, "icon-name").sync_create().build();
     let mini_open = nav_button("aniqu-fullscreen-symbolic", "Back to video");
     let mini_close = nav_button("aniqu-close-symbolic", "Close");
-    for b in [&mini_play, &mini_mute, &mini_open, &mini_close] {
-        mini_bar.append(b);
-    }
+    mini_top_left.append(&mini_open);
+    mini_top_right.append(&mini_close);
+    mini_bottom.append(&mini_play);
+    mini_bottom.append(&mini_mute);
+    let top = gtk::CenterBox::builder().start_widget(&mini_top_left).end_widget(&mini_top_right).valign(gtk::Align::Start).vexpand(true).build();
+    mini_bottom.set_halign(gtk::Align::Start);
+    mini_bottom.set_valign(gtk::Align::End);
+    mini_bar.append(&top);
+    mini_bar.append(&mini_bottom);
     mini_play.connect_clicked({
         let mpv = player.mpv;
         move |_| {
@@ -330,7 +352,53 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
     });
     watch.widget.add_overlay(&mini_bar);
     // Über den Seiten, unter Navigation (wird beim Seitenwechsel neu obenauf gelegt) und Suche.
-    page_layer.add_overlay(&watch.widget);
+    // In `Zoom` verpackt: geht beim Öffnen aus Karte/Kachel auf, Miniplayer ebenso (fly.rs).
+    let zoom = fly::Zoom::new(&watch.widget, &player.widget);
+    page_layer.add_overlay(&zoom);
+    // Miniplayer ziehen; beim Loslassen gleitet er in die nächste Ecke.
+    let drag = gtk::GestureDrag::new();
+    drag.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let dragging = Rc::new(Cell::new(false));
+    drag.connect_drag_update({
+        let (watch, zoom, dragging) = (watch.clone(), zoom.clone(), dragging.clone());
+        move |g, dx, dy| {
+            if !watch.is_mini() {
+                return;
+            }
+            // Erst ab ein paar Pixeln ist es Ziehen; sonst bleibt es ein Klick (Knöpfe im Miniplayer).
+            if !dragging.get() && dx.hypot(dy) < 8.0 {
+                return;
+            }
+            if !dragging.get() {
+                dragging.set(true);
+                g.set_state(gtk::EventSequenceState::Claimed);
+            }
+            zoom.set_offset(dx as f32, dy as f32);
+        }
+    });
+    // Loslassen nach Ziehen um (dx, dy): in die nächste Ecke gleiten.
+    let snap: Rc<dyn Fn(f32, f32)> = Rc::new({
+        let (watch, zoom) = (watch.clone(), zoom.clone());
+        move |dx, dy| {
+            zoom.set_offset(0.0, 0.0);
+            let (Some(player), Some(page)) = (zoom.anchor_bounds(), watch.widget.compute_bounds(&zoom)) else { return };
+            // Nächste Ecke = Seite, auf der die Mitte des Miniplayers jetzt liegt.
+            let right = page.x() + dx + page.width() / 2.0 > zoom.width() as f32 / 2.0;
+            let bottom = page.y() + dy + page.height() / 2.0 > zoom.height() as f32 / 2.0;
+            watch.set_corner(right, bottom);
+            let from = gtk::graphene::Rect::new(player.x() + dx, player.y() + dy, player.width(), player.height());
+            zoom.animate_from(from, None);
+        }
+    });
+    drag.connect_drag_end({
+        let snap = snap.clone();
+        move |_, dx, dy| {
+            if dragging.replace(false) {
+                snap(dx as f32, dy as f32);
+            }
+        }
+    });
+    watch.widget.add_controller(drag);
 
     let nav = Rc::new(Nav {
         stack: stack.clone(),
@@ -343,6 +411,7 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
         page_layer: page_layer.clone(),
         in_player: Cell::new(false),
         watch: watch.clone(),
+        zoom: zoom.clone(),
         mini_bar: mini_bar.clone(),
     });
     mini_open.connect_clicked({
@@ -371,8 +440,20 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
         move |p: Play| {
             let generation = play_gen.get() + 1;
             play_gen.set(generation);
+            // Seite geht aus der angeklickten Episoden-Kachel bzw. „Continue watching“-Karte auf
+            // (vor dem Seitenwechsel messen). Nicht, wenn die Ansehen-Seite schon groß offen ist (nächste Folge).
+            let from = (nav.current() != "watch" || nav.watch.is_mini())
+                .then(|| fly::thumb_bounds(&p.episode().id, &nav.zoom).or_else(|| fly::thumb_bounds(&p.anime.id, &nav.zoom)))
+                .flatten();
+            let backdrop = from.and_then(|_| nav.zoom.backdrop(&nav.stack));
             watch.show(&p);
             nav.go("watch");
+            if let Some(from) = from {
+                // Nach `go`: übernimmt auch einen Miniplayer-Übergang; die Einblendung von `show` braucht es dann nicht.
+                nav.zoom.animate_from(from, backdrop);
+                nav.watch.widget.remove_css_class("page-in-a");
+                nav.watch.widget.remove_css_class("page-in-b");
+            }
             player.loading();
             player.end_next.set_visible(p.next().is_some());
             let ep = p.episode().clone();
@@ -666,6 +747,8 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
                 return glib::Propagation::Proceed;
             }
             let watching = nav.current() == "watch";
+            // Miniplayer: nur die Video-Tasten; Pfeile/Ziffern bleiben fürs Raster.
+            let mini = !watching && nav.watch.is_mini();
             let handled = match key {
                 gdk::Key::Escape if window.is_fullscreen() => {
                     window.unfullscreen();
@@ -683,6 +766,16 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
                     player.controls.fullscreen.emit_clicked();
                     true
                 }
+                // f: zurück zum großen Video (Ansehen-Seite, kein Vollbild); q: Miniplayer schließen (wie in mpv).
+                gdk::Key::f if mini => {
+                    nav.go("watch");
+                    true
+                }
+                gdk::Key::q if mini => {
+                    nav.close_mini();
+                    true
+                }
+                gdk::Key::space | gdk::Key::k | gdk::Key::m if mini => player.key(key),
                 gdk::Key::n | gdk::Key::N if watching => {
                     play_next();
                     true

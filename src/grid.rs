@@ -148,6 +148,10 @@ fn card(item: &Item, width: i32) -> (gtk::Box, gtk::Picture) {
         .css_classes(["thumb"])
         .build();
     load_poster(&pic, a.poster.clone());
+    // Nur „Continue watching“ startet direkt eine Episode: Startpunkt der Öffnen-Animation.
+    if matches!(item, Item::Resume(_)) {
+        crate::fly::register(&a.id, &pic);
+    }
     // Grauer Platzhalter in Bildgröße, bis das Bild da ist; schneidet auch den Hover-Zoom ab.
     let thumb = gtk::Overlay::builder().child(&pic).overflow(gtk::Overflow::Hidden).css_classes(["thumb-box"]).build();
 

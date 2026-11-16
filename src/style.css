@@ -334,7 +334,7 @@ flowboxchild:focus-visible {
   outline-offset: 2px;
 }
 
-/* Ansehen-Seite blendet ein (main.rs `Nav::show`), Miniplayer gleitet in die Ecke. */
+/* Ansehen-Seite blendet ein (main.rs `Nav::show`); Karte/Kachel → Player und Miniplayer: fly.rs. */
 @keyframes page-in-a {
   from { opacity: 0; }
 }
@@ -351,13 +351,6 @@ flowboxchild:focus-visible {
   animation: page-in-b 180ms ease-out;
 }
 
-@keyframes mini-in {
-  from { opacity: 0; transform: translate(40px, 40px) scale(0.85); }
-}
-
-.mini {
-  animation: mini-in 250ms ease-out;
-}
 
 /* Der (unsichtbare) Scrollbalken im Kontextmenü hat eine Mindesthöhe: Menüs mit einem Eintrag
    wären sonst unten 16 px zu hoch. */

@@ -304,6 +304,10 @@ impl Player {
         click.connect_pressed({
             let (controls, flash) = (controls.clone(), flash.clone());
             move |g, n, x, _| {
+                // Im Miniplayer: Ziehen statt Pause (Pause über den Knopf im Miniplayer).
+                if g.widget().is_some_and(|w| in_mini(&w)) {
+                    return;
+                }
                 let _ = mpv.command("cycle", &["pause"]);
                 if n == 2 {
                     let w = g.widget().map_or(1, |w| w.width()) as f64;
@@ -753,6 +757,11 @@ impl Player {
         self.controls.poke();
         true
     }
+}
+
+/// Liegt `w` im Miniplayer (Ansehen-Seite mit Klasse `mini`)?
+fn in_mini(w: &gtk::Widget) -> bool {
+    std::iter::successors(Some(w.clone()), |w| w.parent()).any(|w| w.has_css_class("mini"))
 }
 
 #[cfg(test)]

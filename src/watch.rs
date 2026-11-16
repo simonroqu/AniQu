@@ -81,6 +81,8 @@ pub struct WatchPage {
     want: Cell<Option<i32>>,
     /// Miniplayer: nur das Video, klein unten rechts über der aktuellen Seite.
     mini: Cell<bool>,
+    /// Ecke des Miniplayers (rechts?, unten?); per Ziehen wählbar, gilt für die Sitzung.
+    corner: Cell<(bool, bool)>,
     /// Was gerade läuft (für Zurück zur Anime-Seite, vorherige/nächste Episode).
     pub current: RefCell<Option<Play>>,
 }
@@ -148,6 +150,7 @@ impl WatchPage {
             fullscreen: Cell::new(false),
             want: Cell::new(saved_width()),
             mini: Cell::new(false),
+            corner: Cell::new((true, true)),
             current: RefCell::default(),
         });
 
@@ -233,12 +236,7 @@ impl WatchPage {
     /// (der Player wird nicht umgehängt, sonst müsste mpv seine Video-Fläche neu aufbauen).
     pub fn set_mini(&self, on: bool) {
         self.mini.set(on);
-        let align = if on { gtk::Align::End } else { gtk::Align::Fill };
-        self.widget.set_halign(align);
-        self.widget.set_valign(align);
-        let m = if on { MINI_MARGIN } else { 0 };
-        self.widget.set_margin_end(m);
-        self.widget.set_margin_bottom(m);
+        self.place_mini();
         if on {
             self.widget.remove_css_class("background");
             self.widget.add_css_class("mini");
@@ -251,6 +249,26 @@ impl WatchPage {
         self.scroll.set_policy(gtk::PolicyType::Never, v);
         self.info.set_visible(!on && !self.fullscreen.get());
         self.fit_player();
+    }
+
+    /// Miniplayer in die Ecke `right`/`bottom` legen (nach dem Ziehen).
+    pub fn set_corner(&self, right: bool, bottom: bool) {
+        self.corner.set((right, bottom));
+        self.place_mini();
+    }
+
+    /// Ausrichtung/Ränder: im Miniplayer in die gewählte Ecke, sonst ganze Fläche.
+    fn place_mini(&self) {
+        let on = self.mini.get();
+        let (right, bottom) = self.corner.get();
+        let side = |end: bool| if !on { gtk::Align::Fill } else if end { gtk::Align::End } else { gtk::Align::Start };
+        self.widget.set_halign(side(right));
+        self.widget.set_valign(side(bottom));
+        let m = if on { MINI_MARGIN } else { 0 };
+        self.widget.set_margin_start(m);
+        self.widget.set_margin_end(m);
+        self.widget.set_margin_top(m);
+        self.widget.set_margin_bottom(m);
     }
 
     pub fn set_fullscreen(&self, fullscreen: bool) {
