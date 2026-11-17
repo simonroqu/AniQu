@@ -62,7 +62,7 @@ Double-click left/right on the player seeks −/+10 s, the middle toggles fullsc
 
 AniQu is a personal project for private use. It does not host any content; it only plays what
 third-party sites provide. Use it in accordance with the laws of your country and the terms of
-the services you access.
+the services you access. AniQu is not affiliated with any of these sites or with any rights holder.
 
 ## License
 
