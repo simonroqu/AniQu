@@ -1,0 +1,39 @@
+# AniQu – App-Konfiguration für qu-core (beim Bauen eingebettet). Beschreibung der Felder: ~/Work/quCore/CLAUDE.md
+
+[app]
+name = "aniqu"
+title = "AniQu"
+id = "dev.roqu.AniQu"
+# Startmenü-Eintrag (`aniqu --install`)
+generic_name = "Anime player"
+comment = "Watch anime: trending, search, episodes, continue watching"
+keywords = ["anime", "video", "stream", "episode"]
+
+# Menü oben links. Eingebaut: back, home, search, busy, menu (Burger, braucht nav.menu).
+[nav]
+top = ["back", "home", "search", "busy"]
+
+[search]
+placeholder = "Search anime"
+suggestions = "history"
+
+# Player: wählbare Qualitäten, Standard, Shader-Set fürs AI-Upscaling (fsrcnnx | anime4k).
+[player]
+qualities = [1080, 720, 480, 360]
+default_quality = 1080
+upscaler = "anime4k"
+
+# Fortschritt: speichern ab (s), fertig ab (Anteil – Ending/Abspann läuft oft noch), beim Fortsetzen zurück (s).
+[progress]
+min_watched = 30
+finished_at = 0.9
+rewind = 3
+
+# Raster: Poster 2:3, ab 170 px, höchstens 12 Spalten; Strg+Mausrad 4–12 Spalten (Karten ≥ 120 px).
+[grid]
+card_width = 170
+min_card_width = 120
+max_columns = 12
+zoom_columns = [4, 12]
+image = "2:3"
+info_lines = 1

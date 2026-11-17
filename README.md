@@ -42,7 +42,7 @@ aniqu <episode-link>     # play an episode (link with ?ep=…)
 | `n` | Next episode |
 | `0`–`9` | Seek to 0–90 % |
 | `,` / `.` | Previous / next frame |
-| `c` | Toggle subtitles |
+| `c` | Subtitles on/off (right-click the subtitle button for language, size and background) |
 
 Double-click left/right on the player seeks −/+10 s, the middle toggles fullscreen.
 
@@ -56,6 +56,7 @@ Double-click left/right on the player seeks −/+10 s, the middle toggles fullsc
 
 - Stream lookup follows [ani-cli](https://github.com/pystardust/ani-cli) (GPL-3.0)
 - [AniSkip](https://aniskip.com) for opening/ending times, [mpv](https://mpv.io) for playback
+- [Anime4K](https://github.com/bloc97/Anime4K) upscaling shaders by bloc97 (MIT, via qu-core)
 
 ## Disclaimer
 

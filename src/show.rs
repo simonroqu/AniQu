@@ -97,17 +97,17 @@ impl ShowPage {
         let tabs = gtk::Box::builder().spacing(6).margin_top(8).css_classes(["tabs"]).build();
         tabs.append(&sub_tab);
         tabs.append(&dub_tab);
-        let watchlist = gtk::Button::builder().icon_name("aniqu-watchlist-symbolic").focusable(false).valign(gtk::Align::Center).css_classes(["flat"]).build();
+        let watchlist = gtk::Button::builder().icon_name("qu-watchlist-symbolic").focusable(false).valign(gtk::Align::Center).css_classes(["flat"]).build();
         tabs.append(&watchlist);
 
         // Platzhalter für Infos und Beschreibung, bis die Anime-Seite gelesen ist (Titel ist schon bekannt).
         let ghost_text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).visible(false).build();
         for (k, n, h) in [(2, 5, 14), (1, 4, 14)] {
-            ghost_text.append(&crate::grid::part(k, n, h));
+            ghost_text.append(&qu_core::cards::part(k, n, h));
         }
         let desc = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).margin_top(8).build();
         for (k, n) in [(1, 1), (1, 1), (3, 5)] {
-            desc.append(&crate::grid::part(k, n, 14));
+            desc.append(&qu_core::cards::part(k, n, 14));
         }
         ghost_text.append(&desc);
 
@@ -144,8 +144,8 @@ impl ShowPage {
             .build();
         for _ in 0..12 {
             let tile = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).width_request(200).css_classes(["episode"]).build();
-            tile.append(&crate::grid::part(1, 2, 16));
-            tile.append(&crate::grid::part(3, 4, 12));
+            tile.append(&qu_core::cards::part(1, 2, 16));
+            tile.append(&qu_core::cards::part(3, 4, 12));
             ghost_flow.append(&tile);
         }
         let status = gtk::Label::builder().visible(false).margin_top(32).wrap(true).build();
@@ -164,7 +164,7 @@ impl ShowPage {
         content.append(&status);
         content.append(&flow);
         let widget = gtk::ScrolledWindow::builder().child(&content).hscrollbar_policy(gtk::PolicyType::Never).build();
-        crate::smooth::attach(&widget);
+        qu_core::smooth::attach(&widget);
 
         let page = Rc::new(ShowPage {
             widget,
@@ -305,7 +305,7 @@ impl ShowPage {
     }
 
     fn show_watchlist(&self, on: bool) {
-        self.watchlist.set_icon_name(if on { "aniqu-watchlisted-symbolic" } else { "aniqu-watchlist-symbolic" });
+        self.watchlist.set_icon_name(if on { "qu-watchlisted-symbolic" } else { "qu-watchlist-symbolic" });
         self.watchlist.set_tooltip_text(Some(if on { "Remove from Watchlist" } else { "Add to Watchlist" }));
     }
 
@@ -372,7 +372,7 @@ impl ShowPage {
             let bar = gtk::ProgressBar::builder().fraction(entry.as_ref().map_or(0.0, |e| e.fraction())).margin_top(4).css_classes(["watched"]).build();
             bar.set_opacity(if entry.is_some() { 1.0 } else { 0.0 });
             tile.append(&bar);
-            crate::fly::register(&ep.id, &tile);
+            qu_core::fly::register(&ep.id, &tile);
             if entry.is_some_and(|e| e.finished()) {
                 tile.set_opacity(0.5);
             }

@@ -58,7 +58,8 @@ pub struct Stream {
     pub variants: Vec<(u32, String)>,
     /// Der Stream-Server will die Einbettungs-Seite als Referer.
     pub referer: String,
-    pub subtitle: Option<String>,
+    /// Untertitel als lokale Dateien („…/English.vtt“, mpv zeigt den Dateinamen als Spur-Titel), Standard zuerst.
+    pub subtitles: Vec<String>,
     /// MyAnimeList-ID für ani-skip (steckt in der Einbettungs-Adresse).
     pub mal_id: Option<String>,
 }
@@ -326,25 +327,40 @@ pub async fn stream(episode_id: String, mode: String) -> Result<Stream, String> 
     let json = between(&page, "window.__P=\"", "\"").and_then(deobfuscate).ok_or("Couldn't read the video player")?;
     let j: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     let master = j["src"].as_str().filter(|s| s.contains(".m3u8")).ok_or("No video source found")?.to_string();
-    let subs = j["subtitles"].as_array().cloned().unwrap_or_default();
-    let subtitle = subs
-        .iter()
-        .find(|s| s["default"] == true)
-        .or(subs.first())
-        .and_then(|s| s["src"].as_str())
-        .map(String::from);
+    let mut subs = j["subtitles"].as_array().cloned().unwrap_or_default();
+    subs.sort_by_key(|s| s["default"] != true);
+    let subtitles = download_subtitles(&subs, &referer).await;
     let mut variants = parse_master(&master, &get(&master, Some(&referer)).await?);
     if variants.is_empty() {
         variants.push((0, master));
     }
     let mal_id = between(&format!("{embed}/"), "/mal/", "/").map(String::from);
-    Ok(Stream { variants, referer, subtitle, mal_id })
+    Ok(Stream { variants, referer, subtitles, mal_id })
+}
+
+/// Untertitel (`src`, `label`) nach `<tmp>/aniqu-subs/<nr>-<datei>/<Label>.<endung>` laden: so heißt die Spur in
+/// mpv „English“ statt nach der Zufalls-Datei. Fehlschläge auslassen (das Video geht trotzdem).
+async fn download_subtitles(subs: &[serde_json::Value], referer: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, s) in subs.iter().enumerate() {
+        let Some(src) = s["src"].as_str() else { continue };
+        let file = src.split(['?', '#']).next().unwrap_or(src).rsplit('/').next().unwrap_or_default();
+        let (stem, ext) = file.rsplit_once('.').unwrap_or((file, "vtt"));
+        let label = s["label"].as_str().or(s["lang"].as_str()).unwrap_or("Subtitles").replace(['/', ':', '\\'], " ");
+        let Ok(text) = get(src, Some(referer)).await else { continue };
+        let dir = std::env::temp_dir().join("aniqu-subs").join(format!("{i}-{stem}"));
+        let path = dir.join(format!("{label}.{ext}"));
+        if tokio::fs::create_dir_all(&dir).await.is_ok() && tokio::fs::write(&path, text).await.is_ok() {
+            out.push(path.to_string_lossy().into_owned());
+        }
+    }
+    out
 }
 
 // ---------- Poster ----------
 
 fn cache_dir() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cache/aniqu")
+    qu_core::app::cache_dir()
 }
 
 /// Poster als Bytes; einmal geladen, kommt es von der Festplatte.

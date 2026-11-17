@@ -8,12 +8,6 @@ use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Kürzer geschaut zählt als „nur reingeklickt“ und wird nicht gespeichert.
-const MIN_WATCHED: f64 = 30.0;
-/// Ab diesem Anteil gilt eine Episode als fertig (Ending läuft meist noch) und startet beim nächsten Mal von vorne.
-const FINISHED_AT: f64 = 0.9;
-/// Beim Fortsetzen ein paar Sekunden zurückspringen, um wieder reinzukommen.
-const REWIND: f64 = 3.0;
 /// Auf neue Folgen prüfen nur bei Animes, die in dieser Zeit geschaut wurden (laufende Staffeln).
 const AIRING_WINDOW: u64 = 60 * 86400;
 
@@ -40,12 +34,12 @@ pub struct Entry {
 
 impl Entry {
     pub fn finished(&self) -> bool {
-        self.dur > 0.0 && self.pos >= self.dur * FINISHED_AT
+        qu_core::progress::finished(self.pos, self.dur)
     }
 
     /// Anteil für den Balken (0.0 – 1.0).
     pub fn fraction(&self) -> f64 {
-        if self.finished() { 1.0 } else { (self.pos / self.dur).clamp(0.0, 1.0) }
+        qu_core::progress::fraction(self.pos, self.dur)
     }
 }
 
@@ -61,10 +55,7 @@ type Key = (String, u32);
 
 /// Datei in `~/.local/share/aniqu/`.
 pub fn data_file(name: &str) -> PathBuf {
-    let base = std::env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"));
-    base.join("aniqu").join(name)
+    qu_core::app::data_file(name)
 }
 
 fn path() -> PathBuf {
@@ -212,12 +203,12 @@ pub fn set_total(anime: &str, total: u32) {
 /// Stelle zum Fortsetzen, falls die Episode angefangen und nicht fertig ist.
 pub fn resume_at(anime: &str, episode: u32) -> Option<f64> {
     let e = get(anime, episode)?;
-    (!e.finished()).then(|| (e.pos - REWIND).max(0.0))
+    qu_core::progress::resume_from(e.pos, e.dur)
 }
 
 /// Position speichern (unter 30 s geschaut: nichts tun).
 pub fn record(m: &Meta, pos: f64, dur: f64) {
-    if dur <= 0.0 || pos < MIN_WATCHED {
+    if !qu_core::progress::worth_saving(pos, dur) {
         return;
     }
     let mut db = DB.lock().unwrap();
@@ -242,12 +233,17 @@ fn persist(db: &HashMap<Key, Entry>) {
 mod tests {
     use super::*;
 
+    fn cfg() {
+        qu_core::config::load(include_str!("../qu.toml"));
+    }
+
     fn e(pos: f64, updated: u64, total: u32) -> Entry {
         Entry { pos, dur: 1400.0, updated, title: "T\tmit Tab".into(), poster: "p".into(), total }
     }
 
     #[test]
     fn rules_and_roundtrip() {
+        cfg();
         assert!(!e(700.0, 1, 0).finished() && e(1300.0, 1, 0).finished());
         assert_eq!(e(700.0, 1, 0).fraction(), 0.5);
 
@@ -260,6 +256,7 @@ mod tests {
 
     #[test]
     fn continue_watching_picks_next() {
+        cfg();
         let db: HashMap<Key, Entry> = [
             // a: Episode 2 fertig (neuer als Episode 1) -> weiter mit 3.
             (("a".into(), 1), e(700.0, 1, 12)),
@@ -278,6 +275,7 @@ mod tests {
 
     #[test]
     fn caught_up_only_recent_and_finished() {
+        cfg();
         let day = 86400;
         let now = 100 * day;
         let db: HashMap<Key, Entry> = [
