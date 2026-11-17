@@ -67,10 +67,11 @@ jobs:
           ls $out/bin
           zip -qr AniQu-windows.zip $out
 
+      # Ordner statt ZIP: GitHub verpackt Artifacts beim Herunterladen selbst als ZIP.
       - uses: actions/upload-artifact@v4
         with:
           name: AniQu-windows
-          path: AniQu-windows.zip
+          path: AniQu
 
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
