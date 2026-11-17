@@ -25,6 +25,7 @@ jobs:
           update: true
           install: >-
             zip
+            git
             mingw-w64-ucrt-x86_64-rust
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-gtk4
@@ -33,7 +34,16 @@ jobs:
             mingw-w64-ucrt-x86_64-webp-pixbuf-loader
             mingw-w64-ucrt-x86_64-adwaita-icon-theme
 
-      - run: cargo build --release
+      # quCore ist privat: Cargo holt es über git mit dem Token aus dem Secret QUCORE_TOKEN
+      # (Fine-grained Token, nur quCore, Contents: Read-only). Bei öffentlichem quCore bleibt das Secret leer.
+      - run: |
+          if [ -n "$QUCORE_TOKEN" ]; then
+            git config --global url."https://x-access-token:$QUCORE_TOKEN@github.com/simonroqu/quCore".insteadOf "https://github.com/simonroqu/quCore"
+          fi
+          cargo build --release
+        env:
+          QUCORE_TOKEN: ${{ secrets.QUCORE_TOKEN }}
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
       # Aufbau wie unter MSYS2 (bin/, lib/, share/), dann findet GTK seine Daten relativ zur DLL.
       - name: Bundle
