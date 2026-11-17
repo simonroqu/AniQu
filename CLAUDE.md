@@ -22,6 +22,14 @@ cargo run -- <hianime-link>          # Anime-Seite; mit ?ep=<id> direkt die Epis
 
 Eine laufende installierte Instanz bekommt das neue Binary erst nach einem Neustart.
 
+## Windows (ungetestet auf echtem Windows, Stand 2026-11-17)
+
+`.github/workflows/windows.yml`: Tag `v…` pushen → GitHub baut unter MSYS2 (UCRT64, GTK4 + libmpv aus MSYS2) und hängt
+`AniQu-windows.zip` an den Release (`bin/aniqu.exe` + DLLs, `lib/gdk-pixbuf-2.0`, `share/` mit Schemas und Icons). Von Hand
+starten: Actions → Windows → Run workflow (nur Build-Artefakt, kein Release). Windows-Anpassungen: `main.rs`
+`windows_subsystem` (kein Konsolenfenster), `sub-files`-Trenner in `player.rs`, Pfade und GL-Loader in qu-core.
+`install.sh`/`--install` sind nur für Linux.
+
 ## Aufbau (`src/`)
 
 | Datei | Aufgabe |
@@ -48,7 +56,7 @@ Eine laufende installierte Instanz bekommt das neue Binary erst nach einem Neust
   (`src` = master.m3u8, `subtitles`). Master-Playlist mit Referer der Einbettung holen → Stufen 360/720/1080.
 - reqwest mit Browser-User-Agent kommt durch Cloudflare (getestet 2026-11-07). Bei „Just a moment“ → Fehlermeldung.
 - mpv: `referrer` + `user-agent`. Untertitel lädt `anime::stream` vorher nach `<tmp>/aniqu-subs/<nr>-<datei>/<Label>.vtt`
-  (mit Referer) und gibt sie als **lokale** `sub-files` (Pfadliste mit „:“, mit Adressen ginge das nicht); mpv nimmt den
+  (mit Referer) und gibt sie als **lokale** `sub-files` (Pfadliste mit „:“, unter Windows „;“; mit Adressen ginge das nicht); mpv nimmt den
   Dateinamen als Spur-Titel („English“), `player.rs` beobachtet daher `current-tracks/sub/title`.
 - Untertitel-Knopf (wie Tubequ): Linksklick/`c` = an/aus, Rechtsklick = Menü (Sprache, Größe, Hintergrund).
   Gespeichert in `~/.config/aniqu/subtitles` (Sprache = Spur-Name, Größe, `box`/`outline`, `on`/`off`); an/aus gilt
