@@ -33,7 +33,7 @@ CI nutzt dasselbe Skript) → `%LOCALAPPDATA%\Programs\<Titel>` + Startmenü-Ver
 und macOS (Homebrew, `--install` legt `~/Applications/<Titel>.app` an). Skripte in allen drei Apps gleich (Name aus `qu.toml`),
 App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
 
-## Android (`android/` + `ffi/`, Stand 2026-11-18, noch nicht auf einem Gerät getestet)
+## Android (`android/` + `ffi/`, Stand 2026-11-18, in Waydroid getestet: Trending, Link, Anime-Seite, Abspielen, Skip, Untertitel, Continue watching)
 
 - `ffi/` = Crate `aniqu-ffi`: reicht `aniqu-core` per **UniFFI** an Kotlin weiter (eigene `Record`-Typen, Netz über
   `qu_core::bg`, `init(filesDir, cacheDir)` setzt Ordner, qu.toml und `TMPDIR` für die Untertitel). Neue Funktionen für
@@ -46,7 +46,12 @@ App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
 - `MainActivity.kt`: Seiten Home (Suche, Continue watching, Watchlist, Trending), Anime-Seite (Sub/Dub, Watchlist,
   Episoden), Player (ExoPlayer, HLS mit Referer/User-Agent, VTT-Untertitel als Spuren, Fortsetzen, Fortschritt alle 5 s,
   „Skip intro/ending“, nächste Episode am Ende, Querformat/Vollbild). hianime.at-Links öffnen die App.
-- Testen: Waydroid (x86_64) oder Handy per `adb install`. Fehlt noch: App-Icon, Upscaling (nur mit libmpv).
+- Testen in Waydroid (x86_64): `waydroid app install app/build/outputs/apk/debug/app-debug.apk`. Steuern nur im Container
+  per adb (`~/Android/Sdk/platform-tools/adb connect <IP aus waydroid status>:5555`, dann `-s <IP>:5555 shell input tap/keyevent`,
+  `am start -a android.intent.action.VIEW -d <hianime-Link> dev.roqu.aniqu`, Bild per `exec-out screencap -p`), nie Eingaben am
+  Desktop. Vorher stumm: `shell cmd media_session volume --stream 3 --set 0`. `run-as` geht in Waydroid nicht.
+  Kein Netz in Waydroid = ufw (Omarchy): `ufw allow in on waydroid0` + `ufw route allow in/out on waydroid0`.
+- Handy: `adb install`. Fehlt noch: App-Icon, Upscaling (nur mit libmpv), Links bei schon offener App (`onNewIntent`).
 
 ## Aufbau (`src/` = GTK-App, `core/` = Crate `aniqu-core` ohne Oberfläche)
 
