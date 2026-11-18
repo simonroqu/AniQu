@@ -11,7 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +33,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -41,6 +49,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -49,6 +58,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.async
@@ -83,6 +93,16 @@ fun bare(id: String) = Anime(id = id, title = "", poster = null, sub = null, dub
 
 fun message(e: Exception) = (e as? AniException.Failed)?.msg ?: e.message ?: "Something went wrong"
 
+/** Fokus sichtbar machen (Android TV, Fernbedienung): weißer Rahmen und leicht größer. Vor `clickable` setzen. */
+@Composable
+fun Modifier.tvFocus(shape: Shape = RoundedCornerShape(10.dp), grow: Float = 1.05f): Modifier {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) grow else 1f, label = "focus")
+    return onFocusChanged { focused = it.isFocused }
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .then(if (focused) Modifier.border(3.dp, Color.White, shape) else Modifier)
+}
+
 @Composable
 fun App(link: String?) {
     val stack = remember { mutableStateListOf<Page>(Page.Home) }
@@ -106,7 +126,7 @@ fun App(link: String?) {
 
 @Composable
 fun PosterCard(a: Anime, label: String? = null, fraction: Double? = null, onClick: () -> Unit) {
-    Column(Modifier.clickable(onClick = onClick)) {
+    Column(Modifier.tvFocus().clickable(onClick = onClick).padding(4.dp)) {
         Box {
             AsyncImage(
                 model = a.poster,
@@ -140,11 +160,17 @@ fun LazyGridScope.header(text: String) {
 fun HomePage(open: (Anime) -> Unit, resume: (Resume) -> Unit) {
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    // Suche erst als Knopf: ein fokussiertes Textfeld öffnet sofort die Tastatur (auf dem TV schon beim Durchnavigieren).
+    var editing by remember { mutableStateOf(false) }
     var found by remember { mutableStateOf<List<Anime>?>(null) }
     var popular by remember { mutableStateOf(savedTrending()) }
     var error by remember { mutableStateOf<String?>(null) }
     val going = remember { continueWatching(12u) }
     val saved = remember { watchlist() }
+    // Zurück: erst Tastatur/Suchergebnisse schließen, dann erst die App.
+    BackHandler(editing || found != null) {
+        if (editing) editing = false else { found = null; query = "" }
+    }
     LaunchedEffect(Unit) {
         try { popular = trending() } catch (e: Exception) { error = message(e) }
     }
@@ -156,20 +182,30 @@ fun HomePage(open: (Anime) -> Unit, resume: (Resume) -> Unit) {
         modifier = Modifier.safeDrawingPadding(),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it; if (it.isEmpty()) found = null },
-                placeholder = { Text("Search") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = {
-                    scope.launch {
-                        error = null
-                        try { found = search(query.trim()) } catch (e: Exception) { error = message(e) }
-                    }
-                }),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (editing) {
+                val field = remember { FocusRequester() }
+                LaunchedEffect(Unit) { field.requestFocus() }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        editing = false
+                        if (query.isBlank()) { found = null; return@KeyboardActions }
+                        scope.launch {
+                            error = null
+                            try { found = search(query.trim()) } catch (e: Exception) { error = message(e) }
+                        }
+                    }),
+                    modifier = Modifier.fillMaxWidth().focusRequester(field),
+                )
+            } else {
+                OutlinedButton(onClick = { editing = true }, modifier = Modifier.fillMaxWidth().tvFocus(RoundedCornerShape(50))) {
+                    Text(query.ifEmpty { "Search" }, modifier = Modifier.weight(1f))
+                }
+            }
         }
         error?.let { e -> item(span = { GridItemSpan(maxLineSpan) }) { Text(e, color = MaterialTheme.colorScheme.error) } }
         val results = found
@@ -235,11 +271,12 @@ fun ShowPage(start: Anime, play: (Page.Watch) -> Unit) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(vertical = 8.dp)) {
-                FilterChip(selected = !isDub, onClick = { isDub = false; setDub(start.id, false) }, label = { Text("Sub") })
+                FilterChip(selected = !isDub, onClick = { isDub = false; setDub(start.id, false) }, label = { Text("Sub") },
+                    modifier = Modifier.tvFocus())
                 FilterChip(selected = isDub, onClick = { isDub = true; setDub(start.id, true) }, label = { Text("Dub") },
-                    enabled = anime.dub != null)
+                    enabled = anime.dub != null, modifier = Modifier.tvFocus())
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { listed = toggleWatchlist(anime) }) {
+                TextButton(onClick = { listed = toggleWatchlist(anime) }, modifier = Modifier.tvFocus(RoundedCornerShape(50))) {
                     Text(if (listed) "On watchlist" else "Add to watchlist")
                 }
             }
@@ -247,7 +284,7 @@ fun ShowPage(start: Anime, play: (Page.Watch) -> Unit) {
         info?.description?.takeIf { it.isNotEmpty() }?.let { d ->
             item {
                 Text(d, maxLines = if (more) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.clickable { more = !more })
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.tvFocus(grow = 1f).clickable { more = !more }.padding(4.dp))
             }
         }
         error?.let { e -> item { Text(e, color = MaterialTheme.colorScheme.error) } }
@@ -258,7 +295,7 @@ fun ShowPage(start: Anime, play: (Page.Watch) -> Unit) {
                 val ok = available(anime, ep.number, isDub)
                 ListItem(
                     headlineContent = { Text("${ep.number}. ${ep.title}", maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                    modifier = Modifier.alpha(if (ok) 1f else 0.4f)
+                    modifier = Modifier.alpha(if (ok) 1f else 0.4f).tvFocus(grow = 1f)
                         .clickable(enabled = ok) { play(Page.Watch(anime, ep.number, isDub, eps)) },
                 )
             }
@@ -291,6 +328,8 @@ fun WatchPage(page: Page.Watch, stack: SnapshotStateList<Page>) {
     var segs by remember { mutableStateOf(listOf<Segment>()) }
     var skip by remember { mutableStateOf<Segment?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var view by remember { mutableStateOf<PlayerView?>(null) }
+    val skipFocus = remember { FocusRequester() }
     Fullscreen()
 
     fun save() {
@@ -303,6 +342,16 @@ fun WatchPage(page: Page.Watch, stack: SnapshotStateList<Page>) {
         val eps = list ?: return
         val n = eps.firstOrNull { it.number > page.number } ?: return
         if (available(page.anime, n.number, page.dub)) stack[stack.lastIndex] = page.copy(number = n.number, episodes = eps)
+    }
+
+    // „Weiter“-Knopf der Leiste = nächste Episode (ExoPlayer kennt nur die eine).
+    val controls = remember {
+        object : ForwardingPlayer(player) {
+            override fun isCommandAvailable(command: Int) = command == COMMAND_SEEK_TO_NEXT || super.isCommandAvailable(command)
+            override fun getAvailableCommands(): Player.Commands =
+                super.getAvailableCommands().buildUpon().add(COMMAND_SEEK_TO_NEXT).build()
+            override fun seekToNext() { save(); next() }
+        }
     }
 
     DisposableEffect(player) {
@@ -342,6 +391,12 @@ fun WatchPage(page: Page.Watch, stack: SnapshotStateList<Page>) {
         } catch (e: Exception) { error = message(e) }
     }
 
+    // Wie bei Netflix: erscheint „Skip …“, bekommt es den Fokus (OK = überspringen); danach wieder das Video.
+    val hasSkip = skip != null
+    LaunchedEffect(hasSkip) {
+        if (hasSkip) runCatching { skipFocus.requestFocus() } else view?.requestFocus()
+    }
+
     // Skip-Knopf und Fortschritt (alle 5 s).
     LaunchedEffect(player) {
         var tick = 0
@@ -355,13 +410,26 @@ fun WatchPage(page: Page.Watch, stack: SnapshotStateList<Page>) {
 
     Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
         AndroidView(
-            factory = { PlayerView(it).apply { this.player = player; keepScreenOn = true; setShowSubtitleButton(true) } },
+            // Fokus aufs Video: Tasten der Fernbedienung blenden die Leiste ein, Pfeile wandern durch ihre Knöpfe.
+            factory = {
+                PlayerView(it).apply {
+                    this.player = controls
+                    keepScreenOn = true
+                    // Fernbedienung links/rechts auf der Timeline: 10 s statt 1/20 der Länge.
+                    findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.setKeyTimeIncrement(10_000)
+                    setShowSubtitleButton(true)
+                    isFocusable = true
+                    post { requestFocus() }
+                    view = this
+                }
+            },
             modifier = Modifier.fillMaxSize(),
         )
         skip?.let { s ->
             Button(
                 onClick = { player.seekTo((s.end * 1000).toLong()) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 96.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 96.dp)
+                    .focusRequester(skipFocus).tvFocus(RoundedCornerShape(50)),
             ) { Text("Skip ${s.label}") }
         }
         error?.let { e -> Text(e, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center).padding(24.dp)) }

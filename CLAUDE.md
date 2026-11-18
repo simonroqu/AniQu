@@ -51,6 +51,12 @@ App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
   `am start -a android.intent.action.VIEW -d <hianime-Link> dev.roqu.aniqu`, Bild per `exec-out screencap -p`), nie Eingaben am
   Desktop. Vorher stumm: `shell cmd media_session volume --stream 3 --set 0`. `run-as` geht in Waydroid nicht.
   Kein Netz in Waydroid = ufw (Omarchy): `ufw allow in on waydroid0` + `ufw route allow in/out on waydroid0`.
+- **Android TV (wichtig, so gewollt):** `LEANBACK_LAUNCHER` + Banner (`res/drawable-xhdpi/banner.png`, aus dem App-Icon),
+  Touchscreen nicht nötig. **Alles muss per Fernbedienung (D-Pad) erreichbar sein**: jedes klickbare Element bekommt
+  `Modifier.tvFocus()` vor `clickable` (weißer Rahmen, Karten wachsen 5 %, breite Zeilen mit `grow = 1f`). Suche ist erst
+  ein Knopf, OK macht das Textfeld (sonst öffnet schon das Durchnavigieren die Tastatur); Zurück schließt Suche/Ergebnisse.
+  Player: Fokus auf `PlayerView` (Taste blendet die Leiste ein), „Skip …“ holt sich den Fokus, Timeline-Schritt 10 s,
+  „Weiter“-Knopf = nächste Episode (`ForwardingPlayer`). Neue Knöpfe immer mit `adb shell input keyevent DPAD_*` prüfen.
 - Handy: `adb install`. Fehlt noch: App-Icon, Upscaling (nur mit libmpv), Links bei schon offener App (`onNewIntent`).
 
 ## Aufbau (`src/` = GTK-App, `core/` = Crate `aniqu-core` ohne Oberfläche)
