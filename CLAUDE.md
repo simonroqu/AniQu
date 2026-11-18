@@ -10,6 +10,12 @@ Player/Bedienleiste/Ansehen-Seite sind noch je App eigen: Verbesserungen dort be
 **Diese Datei bei jeder Änderung am Projekt mitpflegen** (gleicher Schritt wie die Code-Änderung), damit eine
 neue Session sofort Bescheid weiß. Nur Entwicklungsrelevantes, keine persönlichen Bemerkungen.
 
+**Zwei Oberflächen, eine Logik:** Desktop (GTK, `src/`) und Android/TV (Compose, `android/`). Jede Änderung am Aussehen
+oder an der Bedienung **immer in beiden** umsetzen (gleicher Schritt), Android danach per Fernbedienung prüfen
+(`adb shell input keyevent DPAD_*`, siehe Abschnitt Android). Logik (was angezeigt wird, Reihenfolge, Regeln) gehört nach
+`core/` und gilt dann für beide; neue Funktionen für Android in `ffi/` exportieren. Geht etwas nur auf einer Seite
+(z. B. Miniplayer, Upscaling), kurz beim Nutzer nachfragen.
+
 ## Bauen, starten, installieren
 
 ```bash
