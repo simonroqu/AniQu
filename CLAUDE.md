@@ -67,6 +67,13 @@ App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
   ein Knopf, OK macht das Textfeld (sonst öffnet schon das Durchnavigieren die Tastatur); Zurück schließt Suche/Ergebnisse.
   Player: Fokus auf `PlayerView` (Taste blendet die Leiste ein), „Skip …“ holt sich den Fokus, Timeline-Schritt 10 s,
   „Weiter“-Knopf = nächste Episode (`ForwardingPlayer`). Neue Knöpfe immer mit `adb shell input keyevent DPAD_*` prüfen.
+- **APK für Nutzer: `build-apk.sh`** (Linux/macOS; in allen drei Apps gleich) richtet fehlende Werkzeuge ein (JDK/unzip/cc
+  über den Paketmanager, SDK-Kommandozeilenwerkzeuge laut `repository2-3.xml` + `platforms;android-37.0` + `ndk;30.0.16248370`
+  nach `~/Android/Sdk`, rustup nach `~/Android/rust`, cargo-ndk), baut und kopiert nach `target/<Titel>.apk`, installiert per
+  adb bei genau einem Gerät (`ADB=` überschreibt adb, `NO_ADB=1` lässt es aus). App-Zusätze in `extra-apk.sh` (nur TubeQu:
+  libclang). **Windows: `build-apk.ps1`** führt dasselbe Skript in WSL aus (richtet WSL + Ubuntu ein: Admin + Neustart),
+  installiert danach mit dem Windows-adb. `.gitattributes` hält `*.sh`/`gradlew` auf LF (sonst bricht sh in WSL/MSYS2 an `\r`).
+  Getestet nur unter Linux mit vorhandenen Werkzeugen; Neueinrichtung und Windows ungetestet.
 - Handy: `adb install`. Fehlt noch: App-Icon, Upscaling (nur mit libmpv), Links bei schon offener App (`onNewIntent`).
 
 ## Aufbau (`src/` = GTK-App, `core/` = Crate `aniqu-core` ohne Oberfläche)
