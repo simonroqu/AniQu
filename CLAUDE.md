@@ -45,14 +45,14 @@ App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
   `qu_core::bg`, `init(filesDir, cacheDir)` setzt Ordner, qu.toml und `TMPDIR` für die Untertitel). Neue Funktionen für
   Android hier exportieren, Logik selbst bleibt in `core/`.
 - `android/` = Gradle-Projekt (Kotlin, Compose, Media3, Coil), **ohne Android Studio**: `cd android && ./gradlew assembleDebug`
-  → `app/build/outputs/apk/debug/app-debug.apk`. `preBuild` ruft `build-rust.sh` (cargo-ndk → `jniLibs/`, Kotlin-Anbindung
-  → `java/uniffi/`, beides nicht im Repo).
+  → `app/build/outputs/apk/debug/app-debug.apk`. `preBuild` ruft qu-cores `android/build-rust.sh aniqu-ffi` (cargo-ndk →
+  `jniLibs/`, Kotlin-Anbindung → `java/uniffi/`, beides nicht im Repo). **Bausteine (Bubble, Suche, Raster, Kacheln, Player,
+  Theme, Icons) kommen aus qu-core `android/`** (siehe `~/Work/quCore/CLAUDE.md`), hier nur die Seiten (`MainActivity.kt`).
 - Werkzeuge ohne root unter `~/Android`: `Sdk/` (cmdline-tools, NDK, platform 37.0), `rust/` (eigenes rustup mit
   Android-Zielen; System-Rust aus pacman hat keine), `gradle-9.9.1/`. cargo-ndk in `~/.cargo/bin`. JDK = System (27).
 - **Aussehen wie die Desktop-App** (so gewollt): Farben aus qu-core `DEFAULT_COLORS` („Last Horizon“), schwebende Glas-Bubble
   oben links (Zurück/Home/Suche wie `[nav] top`), Suche als Spotlight-Karte mit Suchverlauf (`searches.txt`, über
   `qu_core::store`), fette Überschriften/Titel, Episoden als Kacheln wie `.episode`, Sub/Dub als Tabs, Lesezeichen-Icon.
-  Icons = qu-core-SVGs, umgewandelt mit `python3 android/icons.py <name> …` → `res/drawable/qu_<name>.xml`.
   Fernbedienung: Runter aus der Bubble springt per `content.requestFocus(FocusDirection.Down)` in die Seite (findet Compose
   allein nicht); im Suchfeld führt Runter zu den letzten Suchen.
 - `MainActivity.kt`: Seiten Home (Continue watching, Watchlist, Trending), Suchergebnisse, Anime-Seite (Sub/Dub, Watchlist,

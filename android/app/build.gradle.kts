@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// qu-core liefert auch die Android-Bausteine (android/src: Oberfläche, Player; android/build-rust.sh). Ordner so, wie
+// Cargo ihn auflöst: gleicher Stand wie der Rust-Teil (Cargo.lock), lokal ggf. der Patch auf ~/Work/quCore.
+val quCore: String = run {
+    val json = providers.exec {
+        commandLine("cargo", "metadata", "--format-version", "1", "--manifest-path", rootDir.resolve("../Cargo.toml").path)
+    }.standardOutput.asText.get()
+    @Suppress("UNCHECKED_CAST")
+    val packages = (groovy.json.JsonSlurper().parseText(json) as Map<String, Any>)["packages"] as List<Map<String, Any>>
+    File(packages.first { it["name"] == "qu-core" }["manifest_path"] as String).parent
+}
+
 android {
     namespace = "dev.roqu.aniqu"
     compileSdk = 37
@@ -16,12 +27,13 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
     buildFeatures { compose = true }
+    sourceSets["main"].kotlin.srcDir("$quCore/android/src")
 }
 
 // Rust-Teil (aniqu-ffi) vor jedem Build: .so in jniLibs, Kotlin-Anbindung in java/uniffi.
 val buildRust by tasks.registering(Exec::class) {
     workingDir = rootDir
-    commandLine("sh", "build-rust.sh")
+    commandLine("sh", "$quCore/android/build-rust.sh", "aniqu-ffi")
 }
 tasks.named("preBuild") { dependsOn(buildRust) }
 
@@ -34,6 +46,7 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("androidx.media3:media3-exoplayer:1.11.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.11.1")
     implementation("androidx.media3:media3-ui:1.11.1")
     // Für die UniFFI-Anbindung
     implementation("net.java.dev.jna:jna:5.19.1@aar")
