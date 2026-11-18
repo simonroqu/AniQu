@@ -24,19 +24,11 @@ jobs:
           msystem: UCRT64
           update: true
 
-      # quCore ist privat: Cargo holt es über git mit dem Token aus dem Secret QUCORE_TOKEN
-      # (Fine-grained Token, nur quCore, Contents: Read-only). Bei öffentlichem quCore bleibt das Secret leer.
-      # Pakete, Bauen und Zusammenstellen: windows-bundle.sh (dasselbe wie install.ps1).
+      # Pakete, Bauen und Zusammenstellen: windows-bundle.sh (dasselbe wie install.ps1); quCore ist öffentlich.
       - run: |
-          if [ -n "$QUCORE_TOKEN" ]; then
-            git config --global url."https://x-access-token:$QUCORE_TOKEN@github.com/simonroqu/quCore".insteadOf "https://github.com/simonroqu/quCore"
-          fi
           sh windows-bundle.sh
           ls target/AniQu/bin
           (cd target && zip -qr ../AniQu-windows.zip AniQu)
-        env:
-          QUCORE_TOKEN: ${{ secrets.QUCORE_TOKEN }}
-          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
       # Ordner statt ZIP: GitHub verpackt Artifacts beim Herunterladen selbst als ZIP.
       - uses: actions/upload-artifact@v4
