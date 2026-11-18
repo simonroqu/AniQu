@@ -1383,7 +1383,7 @@ dependencies = [
 [[package]]
 name = "qu-core"
 version = "0.1.0"
-source = "git+https://github.com/simonroqu/quCore#3e222bd3f7cee48e674453fb0a5006cda3e12456"
+source = "git+https://github.com/simonroqu/quCore#df34c9724e203caf8828e52e515452fff442df2d"
 dependencies = [
  "async-channel",
  "gtk4",
