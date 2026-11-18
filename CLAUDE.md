@@ -43,7 +43,13 @@ App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
   → `java/uniffi/`, beides nicht im Repo).
 - Werkzeuge ohne root unter `~/Android`: `Sdk/` (cmdline-tools, NDK, platform 37.0), `rust/` (eigenes rustup mit
   Android-Zielen; System-Rust aus pacman hat keine), `gradle-9.9.1/`. cargo-ndk in `~/.cargo/bin`. JDK = System (27).
-- `MainActivity.kt`: Seiten Home (Suche, Continue watching, Watchlist, Trending), Anime-Seite (Sub/Dub, Watchlist,
+- **Aussehen wie die Desktop-App** (so gewollt): Farben aus qu-core `DEFAULT_COLORS` („Last Horizon“), schwebende Glas-Bubble
+  oben links (Zurück/Home/Suche wie `[nav] top`), Suche als Spotlight-Karte mit Suchverlauf (`searches.txt`, über
+  `qu_core::store`), fette Überschriften/Titel, Episoden als Kacheln wie `.episode`, Sub/Dub als Tabs, Lesezeichen-Icon.
+  Icons = qu-core-SVGs, umgewandelt mit `python3 android/icons.py <name> …` → `res/drawable/qu_<name>.xml`.
+  Fernbedienung: Runter aus der Bubble springt per `content.requestFocus(FocusDirection.Down)` in die Seite (findet Compose
+  allein nicht); im Suchfeld führt Runter zu den letzten Suchen.
+- `MainActivity.kt`: Seiten Home (Continue watching, Watchlist, Trending), Suchergebnisse, Anime-Seite (Sub/Dub, Watchlist,
   Episoden), Player (ExoPlayer, HLS mit Referer/User-Agent, VTT-Untertitel als Spuren, Fortsetzen, Fortschritt alle 5 s,
   „Skip intro/ending“, nächste Episode am Ende, Querformat/Vollbild). hianime.at-Links öffnen die App.
 - Testen in Waydroid (x86_64): `waydroid app install app/build/outputs/apk/debug/app-debug.apk`. Steuern nur im Container

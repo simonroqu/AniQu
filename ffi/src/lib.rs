@@ -234,3 +234,28 @@ pub fn speed(anime: String) -> f64 {
 pub fn set_speed(anime: String, speed: f64) {
     lists::set_anime_speed(&anime, speed);
 }
+
+/// Letzte Suchen, neueste zuerst (gleiche Datei wie am Desktop: searches.txt).
+#[uniffi::export]
+pub fn searches() -> Vec<String> {
+    qu_core::store::searches()
+}
+
+#[uniffi::export]
+pub fn add_search(query: String) {
+    qu_core::store::add_search(&query);
+}
+
+#[derive(uniffi::Record)]
+pub struct Watched {
+    /// Anteil geschaut (0–1).
+    pub fraction: f64,
+    /// Ab `finished_at` (qu.toml) gilt die Episode als gesehen.
+    pub finished: bool,
+}
+
+/// Fortschritt einer Episode für die Kachel (None = nie angefangen).
+#[uniffi::export]
+pub fn watched(anime: String, episode: u32) -> Option<Watched> {
+    progress::get(&anime, episode).map(|e| Watched { fraction: e.fraction(), finished: e.finished() })
+}
