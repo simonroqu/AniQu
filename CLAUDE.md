@@ -30,12 +30,10 @@ Eine laufende installierte Instanz bekommt das neue Binary erst nach einem Neust
 
 ## Windows (ungetestet auf echtem Windows, Stand 2026-11-17)
 
-`.github/workflows/windows.yml`: Tag `v…` pushen → GitHub baut unter MSYS2 (UCRT64, GTK4 + libmpv aus MSYS2) und hängt
-`AniQu-windows.zip` an den Release (`bin/aniqu.exe` + DLLs, `lib/gdk-pixbuf-2.0`, `share/` mit Schemas und Icons). Von Hand
-starten: Actions → Windows → Run workflow (nur Build-Artefakt, kein Release). Windows-Anpassungen: `main.rs`
+Nur über die Installationsskripte, kein GitHub-Build/Release. Gebaut wird unter MSYS2 (UCRT64, GTK4 + libmpv aus MSYS2),
+gebündelt als `bin/aniqu.exe` + DLLs, `lib/gdk-pixbuf-2.0`, `share/` mit Schemas und Icons. Windows-Anpassungen: `main.rs`
 `windows_subsystem` (kein Konsolenfenster), `sub-files`-Trenner in `player.rs`, Pfade und GL-Loader in qu-core.
-Installieren: `install.ps1` (MSYS2 per winget, dann `windows-bundle.sh`: Pakete, Bauen, Bündeln nach `target/<Titel>/`; die
-CI nutzt dasselbe Skript) → `%LOCALAPPDATA%\Programs\<Titel>` + Startmenü-Verknüpfung. `install.sh` = Linux (pacman/apt/dnf/zypper)
+Installieren: `install.ps1` (MSYS2 per winget, dann `windows-bundle.sh`: Pakete, Bauen, Bündeln nach `target/<Titel>/`) → `%LOCALAPPDATA%\Programs\<Titel>` + Startmenü-Verknüpfung. `install.sh` = Linux (pacman/apt/dnf/zypper)
 und macOS (Homebrew, `--install` legt `~/Applications/<Titel>.app` an). Skripte in allen drei Apps gleich (Name aus `qu.toml`),
 App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
 
