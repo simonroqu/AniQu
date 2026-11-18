@@ -33,6 +33,21 @@ CI nutzt dasselbe Skript) → `%LOCALAPPDATA%\Programs\<Titel>` + Startmenü-Ver
 und macOS (Homebrew, `--install` legt `~/Applications/<Titel>.app` an). Skripte in allen drei Apps gleich (Name aus `qu.toml`),
 App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
 
+## Android (`android/` + `ffi/`, Stand 2026-11-18, noch nicht auf einem Gerät getestet)
+
+- `ffi/` = Crate `aniqu-ffi`: reicht `aniqu-core` per **UniFFI** an Kotlin weiter (eigene `Record`-Typen, Netz über
+  `qu_core::bg`, `init(filesDir, cacheDir)` setzt Ordner, qu.toml und `TMPDIR` für die Untertitel). Neue Funktionen für
+  Android hier exportieren, Logik selbst bleibt in `core/`.
+- `android/` = Gradle-Projekt (Kotlin, Compose, Media3, Coil), **ohne Android Studio**: `cd android && ./gradlew assembleDebug`
+  → `app/build/outputs/apk/debug/app-debug.apk`. `preBuild` ruft `build-rust.sh` (cargo-ndk → `jniLibs/`, Kotlin-Anbindung
+  → `java/uniffi/`, beides nicht im Repo).
+- Werkzeuge ohne root unter `~/Android`: `Sdk/` (cmdline-tools, NDK, platform 37.0), `rust/` (eigenes rustup mit
+  Android-Zielen; System-Rust aus pacman hat keine), `gradle-9.9.1/`. cargo-ndk in `~/.cargo/bin`. JDK = System (27).
+- `MainActivity.kt`: Seiten Home (Suche, Continue watching, Watchlist, Trending), Anime-Seite (Sub/Dub, Watchlist,
+  Episoden), Player (ExoPlayer, HLS mit Referer/User-Agent, VTT-Untertitel als Spuren, Fortsetzen, Fortschritt alle 5 s,
+  „Skip intro/ending“, nächste Episode am Ende, Querformat/Vollbild). hianime.at-Links öffnen die App.
+- Testen: Waydroid (x86_64) oder Handy per `adb install`. Fehlt noch: App-Icon, Upscaling (nur mit libmpv).
+
 ## Aufbau (`src/` = GTK-App, `core/` = Crate `aniqu-core` ohne Oberfläche)
 
 `core/` hängt nicht an GTK/mpv (qu-core mit `default-features = false`, reqwest auf Android mit rustls) – Grundlage

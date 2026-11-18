@@ -5,7 +5,7 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["core"]
+members = ["core", "ffi"]
 
 [dependencies]
 # Alles ohne Oberfläche (hianime, Fortschritt, Listen): core/.
