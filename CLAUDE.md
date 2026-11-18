@@ -1,6 +1,6 @@
 # AniQu – Anime-Player für Linux (Rust + GTK4 + libmpv)
 
-Schwester-App von Tubequ (`~/Work/tubequ`) und BoxQu: gleicher Aufbau und Style, eigenes Repo. Den gemeinsamen
+Schwester-App von TubeQu (`~/Work/tubequ`) und BoxQu: gleicher Aufbau und Style, eigenes Repo. Den gemeinsamen
 Unterbau (Theme, CSS, Icons, Animationen, Suche, Upscaling) teilen alle drei über **qu-core** (`~/Work/quCore`).
 Player/Bedienleiste/Ansehen-Seite sind noch je App eigen: Verbesserungen dort bei Bedarf von Hand übernehmen (Code ist oft 1:1
 übertragbar, z. B. `Nav`, Nav-Bubble, Miniplayer). App-ID `dev.roqu.AniQu`.
@@ -28,7 +28,10 @@ Eine laufende installierte Instanz bekommt das neue Binary erst nach einem Neust
 `AniQu-windows.zip` an den Release (`bin/aniqu.exe` + DLLs, `lib/gdk-pixbuf-2.0`, `share/` mit Schemas und Icons). Von Hand
 starten: Actions → Windows → Run workflow (nur Build-Artefakt, kein Release). Windows-Anpassungen: `main.rs`
 `windows_subsystem` (kein Konsolenfenster), `sub-files`-Trenner in `player.rs`, Pfade und GL-Loader in qu-core.
-`install.sh`/`--install` sind nur für Linux.
+Installieren: `install.ps1` (MSYS2 per winget, dann `windows-bundle.sh`: Pakete, Bauen, Bündeln nach `target/<Titel>/`; die
+CI nutzt dasselbe Skript) → `%LOCALAPPDATA%\Programs\<Titel>` + Startmenü-Verknüpfung. `install.sh` = Linux (pacman/apt/dnf/zypper)
+und macOS (Homebrew, `--install` legt `~/Applications/<Titel>.app` an). Skripte in allen drei Apps gleich (Name aus `qu.toml`),
+App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
 
 ## Aufbau (`src/`)
 
@@ -58,12 +61,12 @@ starten: Actions → Windows → Run workflow (nur Build-Artefakt, kein Release)
 - mpv: `referrer` + `user-agent`. Untertitel lädt `anime::stream` vorher nach `<tmp>/aniqu-subs/<nr>-<datei>/<Label>.vtt`
   (mit Referer) und gibt sie als **lokale** `sub-files` (Pfadliste mit „:“, unter Windows „;“; mit Adressen ginge das nicht); mpv nimmt den
   Dateinamen als Spur-Titel („English“), `player.rs` beobachtet daher `current-tracks/sub/title`.
-- Untertitel-Knopf (wie Tubequ): Linksklick/`c` = an/aus, Rechtsklick = Menü (Sprache, Größe, Hintergrund).
+- Untertitel-Knopf (wie TubeQu): Linksklick/`c` = an/aus, Rechtsklick = Menü (Sprache, Größe, Hintergrund).
   Gespeichert in `~/.config/aniqu/subtitles` (Sprache = Spur-Name, Größe, `box`/`outline`, `on`/`off`); an/aus gilt
   auch fürs nächste Video (`Controls::apply_subs` bei `FileLoaded`). Einblendungen „Subtitles: …“ nicht in den
   ersten 1,5 s nach `play`.
   Werte in `loadfile`-Optionen als `%Länge%Wert`.
-- Kein Anfragen-Limit wie bei Tubequ nötig, aber sparsam bleiben (kein Vorladen).
+- Kein Anfragen-Limit wie bei TubeQu nötig, aber sparsam bleiben (kein Vorladen).
 
 ## Tests – Regeln
 
@@ -84,8 +87,8 @@ starten: Actions → Windows → Run workflow (nur Build-Artefakt, kein Release)
 
 ## Design-Regeln
 
-Wie Tubequ (siehe `~/Work/tubequ/CLAUDE.md`): keine Kopfzeile, Nav-Bubble oben links, Buttons nur Icons mit Tooltip,
-Laden von Inhalten = graue Platzhalter in Form des Inhalts mit Glanzstreifen (qu-core-CSS `.skeleton`, wie Tubequ): Raster `grid.rs` `ghost_card`/`set_ghost` (Breiten über `part`, keine festen Pixel), Anime-Seite `show.rs` `set_loading` (Infos, Beschreibung, Poster-Fläche, Episoden-Kacheln); sonst (Bubble, Player) Spinner = `icons::spinner()` (nie `gtk::Spinner`), keine knalligen Farben, keine festen Pixelbreiten im Raster.
+Wie TubeQu (siehe `~/Work/tubequ/CLAUDE.md`): keine Kopfzeile, Nav-Bubble oben links, Buttons nur Icons mit Tooltip,
+Laden von Inhalten = graue Platzhalter in Form des Inhalts mit Glanzstreifen (qu-core-CSS `.skeleton`, wie TubeQu): Raster `grid.rs` `ghost_card`/`set_ghost` (Breiten über `part`, keine festen Pixel), Anime-Seite `show.rs` `set_loading` (Infos, Beschreibung, Poster-Fläche, Episoden-Kacheln); sonst (Bubble, Player) Spinner = `icons::spinner()` (nie `gtk::Spinner`), keine knalligen Farben, keine festen Pixelbreiten im Raster.
 Poster im Hochformat 2:3, Karten ab 170 px, höchstens 12 Spalten (im Vollbild sonst riesige Poster).
 
 ## Produktentscheidungen (so gewollt – nicht ohne Rückfrage ändern)

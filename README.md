@@ -1,6 +1,6 @@
 # AniQu
 
-A lightweight anime player for Linux, written in Rust with GTK4 and libmpv.
+A lightweight anime player for Linux (and, untested, Windows and macOS), written in Rust with GTK4 and libmpv.
 Same look and feel as [Tube](https://github.com/simonroqu/tube).
 
 - Home page with the six trending shows and everything you're in the middle of
@@ -16,12 +16,57 @@ Same look and feel as [Tube](https://github.com/simonroqu/tube).
 - mpv / libmpv
 - Optional: `mpv-mpris` for media keys
 
-## Build & install
+## Install
+
+One script per platform: it installs whatever is missing (GTK, mpv, Rust), builds AniQu and adds it to
+your app launcher / start menu. The first run takes a while (downloading and compiling), later runs are quick.
+
+### Linux
 
 ```sh
-cargo build --release
-./install.sh        # installs to ~/.local/bin/aniqu and adds a launcher entry
+git clone https://github.com/simonroqu/AniQu
+cd AniQu
+./install.sh
 ```
+
+Supports Arch, Debian/Ubuntu, Fedora and openSUSE (asks for your sudo password if packages are missing).
+Needs a distribution with GTK ≥ 4.20 (e.g. Arch, Fedora 43, Ubuntu 25.10).
+Installs to `~/.local/bin/aniqu` plus a launcher entry and icon.
+
+### macOS (untested)
+
+Needs [Homebrew](https://brew.sh). Then in Terminal:
+
+```sh
+git clone https://github.com/simonroqu/AniQu
+cd AniQu
+./install.sh
+```
+
+Installs `~/Applications/AniQu.app` (shows up in Launchpad and Spotlight, no icon yet) and `~/.local/bin/aniqu`.
+
+### Windows (untested)
+
+In PowerShell:
+
+```powershell
+winget install -e --id Git.Git      # once, if git is missing (then open a new PowerShell)
+git clone https://github.com/simonroqu/AniQu
+cd AniQu
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+The script installs [MSYS2](https://www.msys2.org) (if missing) and builds AniQu with GTK and mpv from there.
+Installs to `%LOCALAPPDATA%\Programs\AniQu` plus a start menu entry.
+
+### Update and uninstall
+
+- Update: `git pull` in the folder, then run the install script again. It always builds against the latest
+  [qu-core](https://github.com/simonroqu/quCore).
+- Uninstall: delete the files the install script lists at the end.
+- Building fetches qu-core from GitHub, so it has to be reachable from your machine.
+
+## Usage
 
 Run directly:
 

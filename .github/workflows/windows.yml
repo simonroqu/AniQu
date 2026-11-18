@@ -23,55 +23,26 @@ jobs:
         with:
           msystem: UCRT64
           update: true
-          install: >-
-            zip
-            git
-            mingw-w64-ucrt-x86_64-rust
-            mingw-w64-ucrt-x86_64-pkgconf
-            mingw-w64-ucrt-x86_64-gtk4
-            mingw-w64-ucrt-x86_64-mpv
-            mingw-w64-ucrt-x86_64-librsvg
-            mingw-w64-ucrt-x86_64-webp-pixbuf-loader
-            mingw-w64-ucrt-x86_64-adwaita-icon-theme
 
       # quCore ist privat: Cargo holt es über git mit dem Token aus dem Secret QUCORE_TOKEN
       # (Fine-grained Token, nur quCore, Contents: Read-only). Bei öffentlichem quCore bleibt das Secret leer.
+      # Pakete, Bauen und Zusammenstellen: windows-bundle.sh (dasselbe wie install.ps1).
       - run: |
           if [ -n "$QUCORE_TOKEN" ]; then
             git config --global url."https://x-access-token:$QUCORE_TOKEN@github.com/simonroqu/quCore".insteadOf "https://github.com/simonroqu/quCore"
           fi
-          cargo build --release
+          sh windows-bundle.sh
+          ls target/AniQu/bin
+          (cd target && zip -qr ../AniQu-windows.zip AniQu)
         env:
           QUCORE_TOKEN: ${{ secrets.QUCORE_TOKEN }}
           CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-
-      # Aufbau wie unter MSYS2 (bin/, lib/, share/), dann findet GTK seine Daten relativ zur DLL.
-      - name: Bundle
-        run: |
-          set -e
-          out=AniQu
-          mkdir -p $out/bin $out/lib $out/share/glib-2.0/schemas $out/share/icons
-          cp target/release/aniqu.exe $out/bin/
-          cp -r /ucrt64/lib/gdk-pixbuf-2.0 $out/lib/
-          rm -f $out/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.a
-          cp /ucrt64/share/glib-2.0/schemas/gschemas.compiled $out/share/glib-2.0/schemas/
-          cp -r /ucrt64/share/icons/Adwaita /ucrt64/share/icons/hicolor $out/share/icons/
-          # Bildformat-Lader: Pfade relativ machen (gdk-pixbuf setzt sie unter Windows vor den Programmordner).
-          cache=$out/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
-          gdk-pixbuf-query-loaders | sed -E 's#^"[^"]*(lib[\\/]+gdk-pixbuf-2\.0)#"\1#' > $cache
-          grep -c '^"lib' $cache
-          # Alle DLLs aus MSYS2, die das Programm und die Lader brauchen (Windows-eigene bleiben draußen).
-          for f in $out/bin/aniqu.exe $out/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll; do
-            ldd "$f" | grep -o '/ucrt64/bin/[^ ]*\.dll' || true
-          done | sort -u | xargs -I{} cp {} $out/bin/
-          ls $out/bin
-          zip -qr AniQu-windows.zip $out
 
       # Ordner statt ZIP: GitHub verpackt Artifacts beim Herunterladen selbst als ZIP.
       - uses: actions/upload-artifact@v4
         with:
           name: AniQu-windows
-          path: AniQu
+          path: target/AniQu
 
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
