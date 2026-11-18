@@ -33,20 +33,23 @@ CI nutzt dasselbe Skript) → `%LOCALAPPDATA%\Programs\<Titel>` + Startmenü-Ver
 und macOS (Homebrew, `--install` legt `~/Applications/<Titel>.app` an). Skripte in allen drei Apps gleich (Name aus `qu.toml`),
 App-Extras in `extra-deps.sh`/`.ps1` (nur TubeQu).
 
-## Aufbau (`src/`)
+## Aufbau (`src/` = GTK-App, `core/` = Crate `aniqu-core` ohne Oberfläche)
+
+`core/` hängt nicht an GTK/mpv (qu-core mit `default-features = false`, reqwest auf Android mit rustls) – Grundlage
+für eine spätere Android-App. Logik dorthin, Widgets nach `src/`. `main.rs` holt die Module per `use aniqu_core::{…}`.
 
 | Datei | Aufgabe |
 |---|---|
 | `main.rs` | Fenster, Navigation (`Nav`: `browse`/`show`/`watch`, Verlauf zurück/vor), Nav-Bubble, Tasten, Maus-Seitentasten, Startargumente, `play`/`resume`/Links |
-| `anime.rs` | **Einzige Stelle, die mit hianime.at spricht** (Trending, Suche, Anime-Seite, Episoden, Stream, Poster) |
-| `aniskip.rs` | Opening/Ending-Zeiten (api.aniskip.com, MAL-ID aus der Einbettungs-Adresse) |
+| `core/anime.rs` | **Einzige Stelle, die mit hianime.at spricht** (Trending, Suche, Anime-Seite, Episoden, Stream, Poster); Links (`anime_id`, `episode_param`), `available` (Dub) |
+| `core/aniskip.rs` | Opening/Ending-Zeiten (api.aniskip.com, MAL-ID aus der Einbettungs-Adresse) |
 | `grid.rs` | Poster-Raster: Startseite („Continue watching“ oben, dann Watchlist, darunter Trending ohne Watchlist-Animes), Rechtsklick-Menü der Karten (`card_menu`: Watchlist an/aus, bei „Continue watching“ „Watched“), Suche; Check auf neue Folgen; Strg+Mausrad = Spalten 4–12 (hoch = mehr, gespeichert in `~/.config/aniqu/columns`, nur so viele, wie Karten ≥ 120 px passen) |
 | `show.rs` | Anime-Seite: Poster, Infos, Beschreibung, Sub/Dub, Lesezeichen-Knopf (Watchlist), Episoden-Kacheln; `Play` (Episode + Liste) |
 | `player.rs` | Player-Anbindung an qu-core: `Hooks` (User-Agent, Fortschritt pro Episode, AniSkip-Abschnitte, Tempo pro Anime) und `media(meta, stream)` (Referer, Untertitel-Dateien, Fortsetzen). Item = `(Meta, MAL-ID)` |
 | `watch.rs` | Infos unter dem Video (Titel → Anime-Seite, Episode, vorige/nächste) im `WatchFrame` aus qu-core |
-| `progress.rs` | Fortschritt pro Episode, „Continue watching“ (fertig → nächste Episode), `caught_up`/`set_total`; „Watched“ = `hide` (`hidden.tsv`: ID + Zeitpunkt): Anime bleibt aus „Continue watching“ und ohne Neue-Folgen-Prüfung, bis danach wieder eine Episode gespeichert wird (neuerer Zeitstempel) |
-| `lists.rs` | Suchverlauf, Watchlist (`~/.local/share/aniqu/watchlist.tsv`, Format wie `trending.tsv`: `anime::read_list`/`write_list`), Tempo und Sub/Dub pro Anime |
-| `qu.toml` | App-Konfiguration für qu-core: Name/Titel/ID/Startmenü-Texte, **Menü oben links** (`[nav]`), Suche, Player, Fortschrittsregeln, Raster. Format in `~/Work/quCore/CLAUDE.md`; Test `qu_toml` in `main.rs` prüft sie |
+| `core/progress.rs` | Fortschritt pro Episode, „Continue watching“ (fertig → nächste Episode), `caught_up`/`set_total`; „Watched“ = `hide` (`hidden.tsv`: ID + Zeitpunkt): Anime bleibt aus „Continue watching“ und ohne Neue-Folgen-Prüfung, bis danach wieder eine Episode gespeichert wird (neuerer Zeitstempel) |
+| `core/lists.rs` | Suchverlauf, Watchlist (`~/.local/share/aniqu/watchlist.tsv`, Format wie `trending.tsv`: `anime::read_list`/`write_list`), Tempo und Sub/Dub pro Anime |
+| `qu.toml` | App-Konfiguration für qu-core: Name/Titel/ID/Startmenü-Texte, **Menü oben links** (`[nav]`), Suche, Player, Fortschrittsregeln, Raster. Format in `~/Work/quCore/CLAUDE.md`; Test `qu_toml` in `main.rs` prüft sie (`cargo test --workspace`) |
 | **qu-core** (`~/Work/quCore`) | Gemeinsamer Unterbau, **dort ändern**: App-Start (`start`, `--install`), Dateien/Tempo (`store`), Fortschrittsregeln (`progress`), Raster-Bausteine (`cards`), Fenster/Seitenverlauf/Miniplayer (`nav`), Player (`player`, `controls`, Rahmen `watch`), Menü (`navbar`), Ladeanzeige (`Busy`), `bg`, CSS-Schichten (`style`), `app` (Pfade), `theme`, gemeinsames CSS (`qu_core::CSS`), `icons` (`qu-*-symbolic`), `nav_shape`, `fly`, `smooth`, `search` (Suchfenster + Suchverlauf), `upscale` (Shader-Set hier: `UPSCALER` in `controls.rs`). Beschreibung in `~/Work/quCore/CLAUDE.md` |
 | `style.css` | Nur App-eigenes CSS (Poster-Badges `.badge`, Episoden-Kacheln `.episode`); geladen nach `qu_core::CSS` |
 

@@ -30,17 +30,12 @@ impl Play {
     /// Die nächste Episode (falls es eine gibt und sie in der gewählten Sprache verfügbar ist).
     pub fn next(&self) -> Option<Play> {
         let next = Play { index: self.index + 1, ..self.clone() };
-        (next.index < self.episodes.len() && available(&next.anime, next.episode().number, next.dub)).then_some(next)
+        (next.index < self.episodes.len() && anime::available(&next.anime, next.episode().number, next.dub)).then_some(next)
     }
 
     pub fn prev(&self) -> Option<Play> {
         (self.index > 0).then(|| Play { index: self.index - 1, ..self.clone() })
     }
-}
-
-/// Gibt es die Episode synchronisiert? hianime zählt nur, wie viele (die ersten n).
-fn available(a: &Anime, number: u32, dub: bool) -> bool {
-    !dub || a.dub.is_none_or(|n| number <= n)
 }
 
 fn label(classes: &[&str]) -> gtk::Label {
@@ -376,7 +371,7 @@ impl ShowPage {
             if entry.is_some_and(|e| e.finished()) {
                 tile.set_opacity(0.5);
             }
-            let ok = available(&a, ep.number, self.dub.get());
+            let ok = anime::available(&a, ep.number, self.dub.get());
             let child = gtk::FlowBoxChild::builder().child(&tile).sensitive(ok).build();
             if ok {
                 child.set_cursor_from_name(Some("pointer"));

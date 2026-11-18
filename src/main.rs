@@ -1,14 +1,12 @@
 // Unter Windows ohne zusätzliches Konsolenfenster starten.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-mod anime;
-mod aniskip;
 mod grid;
-mod lists;
 mod player;
-mod progress;
 mod show;
 mod watch;
+
+use aniqu_core::{anime, aniskip, lists, progress};
 
 use qu_core::{fly, search};
 use anime::Anime;
@@ -21,20 +19,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 pub use qu_core::{bg, busy::Busy, RT};
-
-/// Anime-ID aus einem hianime-Link (Anime-Seite oder /watch/…).
-fn anime_id(url: &str) -> Option<String> {
-    let rest = url.split_once("hianime.")?.1.split_once('/')?.1;
-    let id = rest.strip_prefix("watch/").unwrap_or(rest).split(['?', '#', '/']).next()?;
-    // Anime-IDs enden auf „-<Nummer>“ (für die Episoden-API).
-    id.rsplit_once('-').filter(|(_, n)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).map(|_| id.to_string())
-}
-
-/// Episoden-ID aus einem hianime-Link (`…?ep=9227`).
-fn episode_param(url: &str) -> Option<String> {
-    let ep: String = url.split_once("ep=")?.1.chars().take_while(|c| c.is_ascii_digit()).collect();
-    (!ep.is_empty()).then_some(ep)
-}
 
 fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
     let display = gdk::Display::default().expect("Display");
@@ -223,9 +207,9 @@ fn build(app: &gtk::Application) -> Rc<dyn Fn(Option<String>)> {
     let open_link: Rc<dyn Fn(&str) -> bool> = Rc::new({
         let (play_episode, open_show) = (play_episode.clone(), open_show.clone());
         move |url| {
-            let Some(id) = anime_id(url) else { return false };
+            let Some(id) = anime::anime_id(url) else { return false };
             let a = Anime { id, ..Default::default() };
-            match episode_param(url) {
+            match anime::episode_param(url) {
                 Some(ep) => play_episode(a, Box::new(move |e| e.id == ep)),
                 None => open_show(a),
             }
@@ -489,15 +473,5 @@ mod tests {
     fn qu_toml() {
         let c = qu_core::config::Config::parse(include_str!("../qu.toml")).unwrap();
         assert_eq!(c.app.name, env!("CARGO_PKG_NAME"));
-    }
-
-    #[test]
-    fn anime_id() {
-        assert_eq!(super::anime_id("https://hianime.at/frieren-beyond-journeys-end-481").as_deref(), Some("frieren-beyond-journeys-end-481"));
-        assert_eq!(super::anime_id("https://hianime.at/watch/one-piece-1?ep=2142").as_deref(), Some("one-piece-1"));
-        assert_eq!(super::anime_id("https://hianime.at/home"), None);
-        assert_eq!(super::anime_id("https://example.com/x-1"), None);
-        assert_eq!(super::episode_param("https://hianime.at/watch/one-piece-1?ep=2142").as_deref(), Some("2142"));
-        assert_eq!(super::episode_param("https://hianime.at/one-piece-1"), None);
     }
 }

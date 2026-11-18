@@ -418,9 +418,39 @@ pub fn write_list(path: &std::path::Path, list: &[Anime]) {
     let _ = std::fs::write(path, text);
 }
 
+/// Anime-ID aus einem hianime-Link (Anime-Seite oder /watch/…).
+pub fn anime_id(url: &str) -> Option<String> {
+    let rest = url.split_once("hianime.")?.1.split_once('/')?.1;
+    let id = rest.strip_prefix("watch/").unwrap_or(rest).split(['?', '#', '/']).next()?;
+    // Anime-IDs enden auf „-<Nummer>“ (für die Episoden-API).
+    id.rsplit_once('-').filter(|(_, n)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).map(|_| id.to_string())
+}
+
+/// Episoden-ID aus einem hianime-Link (`…?ep=9227`).
+pub fn episode_param(url: &str) -> Option<String> {
+    let ep: String = url.split_once("ep=")?.1.chars().take_while(|c| c.is_ascii_digit()).collect();
+    (!ep.is_empty()).then_some(ep)
+}
+
+/// Gibt es die Episode synchronisiert? hianime zählt nur, wie viele (die ersten n).
+pub fn available(a: &Anime, number: u32, dub: bool) -> bool {
+    !dub || a.dub.is_none_or(|n| number <= n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links() {
+        assert_eq!(anime_id("https://hianime.at/frieren-beyond-journeys-end-481").as_deref(), Some("frieren-beyond-journeys-end-481"));
+        assert_eq!(anime_id("https://hianime.at/watch/one-piece-1?ep=2142").as_deref(), Some("one-piece-1"));
+        assert_eq!(anime_id("https://hianime.at/home"), None);
+        assert_eq!(anime_id("https://example.com/x-1"), None);
+        assert_eq!(episode_param("https://hianime.at/watch/one-piece-1?ep=2142").as_deref(), Some("2142"));
+        assert_eq!(episode_param("https://hianime.at/one-piece-1"), None);
+    }
+
 
     const TRENDING: &str = r#"<div class="trending-list" id="trending-home"><div class="swiper-slide">
 <div class="item">
